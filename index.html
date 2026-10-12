@@ -39,6 +39,9 @@
         .drag-handle { touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
         .drag-handle:active { cursor: grabbing; }
         textarea.auto-grow, textarea.cult-input { overflow-y: hidden; }
+        .lab-range { font-size: 11px; zoom: 0.82; margin-top: 1px; }
+        .note-ph { background: #dcfce7; color: #166534; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -1px 0 #86efac; }
+        .note-ph.filled { background: transparent; color: inherit; padding: 0; box-shadow: none; }
         [data-sort-item].dragging { opacity: 0.85; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18); position: relative; z-index: 30; }
         body.is-dragging, body.is-dragging * { user-select: none !important; -webkit-user-select: none !important; cursor: grabbing !important; }
 
@@ -48,7 +51,6 @@
             .issues-plan-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
         }
 
-        /* Date picker that always displays YYYY/MM/DD */
         /* Date boxes: type the date, or tap the calendar button */
         .date-field { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; }
         .date-field .date-field-text { background: transparent; border: 0; outline: none; padding: 0; margin: 0; font: inherit; color: inherit; width: 10.5ch; min-width: 0; }
@@ -198,34 +200,39 @@
            DATA STORE
            ========================================================= */
 
+        // Defaults for a new install (taken from your own setup).
         const DEFAULT_SETTINGS = {
             wards: [
                 { id: 'w1', name: 'ER', color: '#fef3c7', fontColor: '#78350f' },
-                { id: 'w2', name: '21-24', color: '#e0f2fe', fontColor: '#1e3a8a' },
-                { id: 'w3', name: '25-26', color: '#e0e7ff', fontColor: '#312e81' },
-                { id: 'w4', name: 'ICU', color: '#ffe4e6', fontColor: '#881337' },
+                { id: 'w4', name: 'ICU', color: '#0797a2', fontColor: '#ffffff' },
                 { id: 'w5', name: '6', color: '#e0f2fe', fontColor: '#1e3a8a' },
-                { id: 'w6', name: 'NTSC 40', color: '#dcfce7', fontColor: '#166534' }
+                { id: 'w7', name: '5', color: '#fee1f8', fontColor: '#1e293b' }
             ],
             goalsOfCare: [
                 { id: 'g1', name: 'Full Code', color: '#d1fae5', fontColor: '#065f46' },
-                { id: 'g2', name: 'Support Care', color: '#ccfbf1', fontColor: '#115e59' },
-                { id: 'g3', name: 'Comfort/DNR', color: '#fce7f3', fontColor: '#831843' }
+                { id: 'g2', name: 'Support Care', color: '#a3d0ff', fontColor: '#1e293b' },
+                { id: 'g3', name: 'Comfort/DNR', color: '#fce7f3', fontColor: '#831843' },
+                { id: 'g4', name: 'Expired', color: '#a81100', fontColor: '#ffffff' }
             ],
             tags: [
-                { id: 't1', name: 'For D/C', color: '#bfdbfe', fontColor: '#1e40af' },
-                { id: 't2', name: 'For ToC', color: '#c4b5fd', fontColor: '#4c1d95' },
-                { id: 't3', name: 'New', color: '#fbcfe8', fontColor: '#831843' },
-                { id: 't4', name: 'Post ICU', color: '#fed7aa', fontColor: '#7c2d12' },
+                { id: 't1', name: 'For D/C', color: '#30974a', fontColor: '#ffffff' },
+                { id: 't2', name: 'For ToC', color: '#adb0ff', fontColor: '#1e293b' },
+                { id: 't3', name: 'New', color: '#fed681', fontColor: '#1e293b' },
+                { id: 't4', name: 'Post ICU', color: '#0797a2', fontColor: '#ffffff' },
                 { id: 't5', name: 'Sick', color: '#fca5a5', fontColor: '#7f1d1d' }
             ],
             colorCodes: [
-                { id: 'c1', name: 'Antibiotics', color: '#1e40af' },
-                { id: 'c2', name: 'Diuretics', color: '#166534' },
-                { id: 'c3', name: 'Fluid', color: '#854d0e' },
-                { id: 'c4', name: 'Anticoagulation', color: '#9a3412' },
-                { id: 'c5', name: 'Important', color: '#9f1239' }
+                { id: 'c1', name: 'Antibiotics', color: '#661daf' },
+                { id: 'c2', name: 'Diuretics', color: '#e8bd21' },
+                { id: 'c3', name: 'Fluid', color: '#1692d0' },
+                { id: 'c4', name: 'Anticoagulation', color: '#a80000' },
+                { id: 'c5', name: 'Important', color: '#ff0048' }
             ]
+        };
+        // Lab units chosen by default (index into each lab's unit list, see LAB_REF).
+        const DEFAULT_LAB_UNITS = {
+            'lytes.cr': 1, 'lytes.alb': 1, 'glucose.fasting': 1, 'glucose.g1': 1, 'glucose.g2': 1, 'glucose.g3': 1,
+            'inflammation.crp': 1, 'bone.ca': 1, 'bone.phos': 1, 'bone.mg': 1
         };
 
         const STORAGE_PREFIX = 'roundmaster_';
@@ -271,54 +278,13 @@
                 return list;
             },
             getRawPatients() {
-                return this.get('all_patients', [
-                    {
-                        id: 'p_1',
-                        name: 'Khalid Ekko',
-                        mrn: '123456',
-                        dob: '1956-03-15',
-                        gender: 'M',
-                        ward: 'ER',
-                        room: '302',
-                        bed: 'A',
-                        goalsOfCare: 'Full Code',
-                        physician: 'Ahmed',
-                        admissionDate: todayStr(),
-                        tags: ['New'],
-                        memo: 'Review lab results before afternoon rounds.',
-                        medicalBackground: [
-                            { condition: 'AKI', treatment: 'oral hydration' },
-                            { condition: 'ADHF', treatment: 'Lasix 40mg IV BID' }
-                        ],
-                        activeIssues: [
-                            { id: 'i1', issue: 'AKI', treatments: [{ text: 'NS @ 40 ml/hr', color: 'Antibiotics' }, { text: 'Follow Nephrology Reply', color: '' }] },
-                            { id: 'i2', issue: 'ADHF', treatments: [{ text: 'Lasix 40 mg IV BID', color: 'Diuretics' }] }
-                        ],
-                        resolvedIssues: [],
-                        plan: [
-                            { id: 'pl1', text: 'Follow up labs', completed: false }
-                        ]
-                    }
-                ]);
+                return this.get('all_patients', []);
             },
             savePatients(patients) {
                 this.set('all_patients', patients);
             },
             getDailyRecords() {
-                // First-run demo only. Once anything is saved, this default is never used again.
-                const today = todayStr();
-                const def = {};
-                def[today] = {
-                    inpatientIds: ['p_1'],
-                    consultIds: [],
-                    postDc: [
-                        { text: 'OPD confirm appointment', completed: false },
-                        { text: 'Culture follow up', completed: true }
-                    ],
-                    physicians: ['Ahmed'],
-                    careFlags: { p_1: { vitalsDone: true, labsDone: true, planDone: false } }
-                };
-                return this.get('daily_records', def);
+                return this.get('daily_records', {});
             },
             saveDailyRecords(records) {
                 this.set('daily_records', records);
@@ -327,7 +293,7 @@
 
         // A day's record. Created only when something is written to that day.
         function emptyDay() {
-            return { inpatientIds: [], consultIds: [], postDc: [], physicians: [], careFlags: {} };
+            return { inpatientIds: [], consultIds: [], postDc: [], physicians: [], consultPhysicians: [], careFlags: {} };
         }
         function getOrCreateDay(records, date) {
             if (!records[date]) records[date] = emptyDay();
@@ -336,6 +302,7 @@
             if (!d.consultIds) d.consultIds = [];
             if (!d.postDc) d.postDc = [];
             if (!d.physicians) d.physicians = [];
+            if (!d.consultPhysicians) d.consultPhysicians = [];
             if (!d.careFlags) d.careFlags = {};
             return d;
         }
@@ -394,6 +361,8 @@
                 (n.activeIssues || []).length > 0 ||
                 (n.resolvedIssues || []).length > 0 ||
                 (n.plan || []).length > 0 ||
+                (n.dcPlan || []).length > 0 ||
+                !!n.discharge ||
                 (n.investigations || []).length > 0 ||
                 (n.memo || '').trim() !== ''
             );
@@ -408,19 +377,19 @@
             return ds.length ? ds[ds.length - 1] : null;
         }
 
-        // All dates are shown as YYYY/MM/DD.
+        // Dates are shown as DD/MM/YYYY (full) or DD/MM (short, see fmtMD).
         function fmtDate(dateStr) {
             if (!dateStr) return '';
             const m = String(dateStr).match(/^(\d{4})-(\d{2})-(\d{2})/);
-            return m ? `${m[1]}/${m[2]}/${m[3]}` : String(dateStr);
+            return m ? `${m[3]}/${m[2]}/${m[1]}` : String(dateStr);
         }
         function formatDisplayDate(dateStr) {
             return fmtDate(dateStr);
         }
 
-        // Date box: type the date (YYYY/MM/DD — slashes are added automatically, DD/MM/YYYY also works)
+        // Date box: type the date as DD/MM/YYYY (slashes are added automatically) or tap the calendar button.
         // or tap the calendar button. onchangeJs runs with `this` = the hidden date input (use this.value).
-        function dateField(value, onchangeJs, { id = '', cls = '', placeholder = 'YYYY/MM/DD', textAttrs = '' } = {}) {
+        function dateField(value, onchangeJs, { id = '', cls = '', placeholder = 'DD/MM/YYYY', textAttrs = '' } = {}) {
             return `
                 <span class="date-field ${cls}">
                     <input type="text" class="date-field-text" value="${esc(value ? fmtDate(value) : '')}" placeholder="${esc(placeholder)}"
@@ -434,13 +403,14 @@
             `;
         }
 
-        // Reads a typed date: YYYY/MM/DD, YYYYMMDD or DD/MM/YYYY (/, - or . separators). '' = empty, null = invalid.
+        // Reads a typed date: DD/MM/YYYY or DDMMYYYY (also YYYY/MM/DD; /, - or . separators). '' = empty, null = invalid.
         function parseTypedDate(text) {
             const t = String(text || '').trim();
             if (!t) return '';
             let m, y, mo, d;
             if ((m = t.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})$/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
             else if ((m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/))) { d = +m[1]; mo = +m[2]; y = +m[3]; }
+            else if ((m = t.match(/^(\d{2})(\d{2})(\d{4})$/)) && +m[3] >= 1900) { d = +m[1]; mo = +m[2]; y = +m[3]; }
             else if ((m = t.match(/^(\d{4})(\d{2})(\d{2})$/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
             else return null;
             const dt = new Date(y, mo - 1, d);
@@ -448,18 +418,17 @@
             return toLocalDateStr(dt);
         }
 
-        // Adds the slashes while typing year-first digits (e.g. 19560315 -> 1956/03/15).
+        // Adds the slashes while typing day-first digits (e.g. 15031956 -> 15/03/1956).
         function dateTyping(el, e) {
             if (e && e.inputType && e.inputType.startsWith('delete')) return;
             const v = el.value;
             if (!/^[\d\/]*$/.test(v)) return;
-            const firstSeg = v.split('/')[0];
-            if (v.includes('/') && firstSeg.length < 4) return; // typing day-first (DD/MM/YYYY)
+            if (v.includes('/') && v.split('/')[0].length !== 2) return; // typing it your own way: left as typed
             const digits = v.replace(/\D/g, '').slice(0, 8);
-            let out = digits.slice(0, 4);
-            if (digits.length > 4) out += '/' + digits.slice(4, 6);
-            if (digits.length > 6) out += '/' + digits.slice(6, 8);
-            if (digits.length === 4 || digits.length === 6) out += '/';
+            let out = digits.slice(0, 2);
+            if (digits.length > 2) out += '/' + digits.slice(2, 4);
+            if (digits.length > 4) out += '/' + digits.slice(4, 8);
+            if (digits.length === 2 || digits.length === 4) out += '/';
             el.value = out;
         }
 
@@ -472,7 +441,7 @@
                 el.value = native.value ? fmtDate(native.value) : '';
                 wrap.classList.add('date-invalid');
                 setTimeout(() => wrap.classList.remove('date-invalid'), 1500);
-                showToast('Please type the date as YYYY/MM/DD');
+                showToast('Please type the date as DD/MM/YYYY');
                 return;
             }
             el.value = iso ? fmtDate(iso) : '';
@@ -508,6 +477,11 @@
                 text: pl.text,
                 completed: false
             }));
+            note.dcPlan = (src.dcPlan || []).filter(pl => !pl.completed).map((pl, i) => ({
+                id: 'dc_' + stamp + '_' + i,
+                text: pl.text,
+                completed: false
+            }));
             if (!note.investigations) note.investigations = [];
             mergeInvestigationPanels(src.investigations || [], note.investigations);
             Store.savePatients(allPatients);
@@ -534,7 +508,7 @@
            Everything else is recorded per day in patient.dayInfo[date].
            ========================================================= */
 
-        const DAY_INFO_FIELDS = ['age', 'ward', 'room', 'bed', 'goalsOfCare', 'physician', 'admissionDate', 'consultDate', 'tags', 'medicalBackground', 'caseSummary'];
+        const DAY_INFO_FIELDS = ['age', 'ward', 'room', 'bed', 'goalsOfCare', 'physician', 'consultant', 'admissionDate', 'consultDate', 'tags', 'medicalBackground', 'caseSummary'];
 
         function clone(obj) {
             return JSON.parse(JSON.stringify(obj));
@@ -548,7 +522,8 @@
                 room: s.room || '',
                 bed: s.bed || '',
                 goalsOfCare: s.goalsOfCare || '',
-                physician: s.physician || '',
+                physician: s.physician || '',      // inpatient: physician · consult: primary team
+                consultant: s.consultant || '',    // consult: the physician (colours the card)
                 admissionDate: s.admissionDate || '',
                 consultDate: s.consultDate || '',
                 tags: Array.isArray(s.tags) ? s.tags : (s.tag ? [s.tag] : []),
@@ -631,7 +606,7 @@
                 p.dayInfo[toDate] = clone(src);
             } else {
                 const dst = p.dayInfo[toDate];
-                ['age', 'ward', 'room', 'bed', 'goalsOfCare', 'physician', 'admissionDate', 'consultDate', 'caseSummary'].forEach(f => {
+                ['age', 'ward', 'room', 'bed', 'goalsOfCare', 'physician', 'consultant', 'admissionDate', 'consultDate', 'caseSummary'].forEach(f => {
                     if (!String(dst[f] || '').trim() && src[f]) dst[f] = src[f];
                 });
                 dst.tags = [...new Set([...(dst.tags || []), ...(src.tags || []).filter(t => !isNewTag(t) && !isNewMarker(t))])];
@@ -663,6 +638,10 @@
             (note.plan || []).filter(pl => !pl.completed).forEach(pl => {
                 if (!dst.plan.some(x => norm(x.text) === norm(pl.text))) dst.plan.push({ ...clone(pl), completed: false });
             });
+            if (!Array.isArray(dst.dcPlan)) dst.dcPlan = [];
+            (note.dcPlan || []).filter(pl => !pl.completed).forEach(pl => {
+                if (!dst.dcPlan.some(x => norm(x.text) === norm(pl.text))) dst.dcPlan.push({ ...clone(pl), completed: false });
+            });
             mergeInvestigationPanels(note.investigations || [], dst.investigations);
         }
 
@@ -693,7 +672,7 @@
             ['admissionDate', 'Admitted on'], ['dob', 'Date of birth'], ['goalsOfCare', 'Goals of care']
         ];
         const REQUIRED_DETAILS_CONSULT = [
-            ['ward', 'Ward'], ['room', 'Room'], ['bed', 'Bed'], ['physician', 'Primary team'],
+            ['ward', 'Ward'], ['room', 'Room'], ['bed', 'Bed'], ['physician', 'Primary team'], ['consultant', 'Physician'],
             ['consultDate', 'Consult date'], ['dob', 'Date of birth'], ['goalsOfCare', 'Goals of care']
         ];
         function requiredFor(isConsult) { return isConsult ? REQUIRED_DETAILS_CONSULT : REQUIRED_DETAILS; }
@@ -782,7 +761,6 @@
         let isEditingMode = false;
         let isMedicalBgCollapsed = false;
         let editingTile = null; // patient record: which single detail box is being edited ('room', 'name', 'tags'...)
-        let freshRecordOpen = false; // set when a record is opened, so empty sections start collapsed
         let profileEncounterIdx = 0; // which encounter is expanded on the All Patients record (0 = most recent)
         let storagePersisted = null; // true / false / null (unsupported or unknown)
 
@@ -792,8 +770,6 @@
                 if (route === 'patient_profile') profileEncounterIdx = -1;
                 editingTile = (params && params.editTile) || null;
                 if (params && params.type) currentEntryType = params.type;
-                if (route === 'patient_file' && route !== currentRoute) freshRecordOpen = true;
-                if (route === 'patient_file' && params && params.patientId && params.patientId !== activePatientId) freshRecordOpen = true;
                 currentRoute = route;
                 if (params && params.date) currentViewDate = params.date;
                 if (params && params.patientId) activePatientId = params.patientId;
@@ -813,6 +789,7 @@
             physicianColorCache = {}; // recalculated from the latest lists on every redraw
             // Keep the page where it is: hold the old height while the new content goes in.
             const keepY = window.scrollY;
+            if (currentRoute !== 'patient_file') viewEntryKey = null; // leaving the entry resets its boxes
             main.style.minHeight = main.offsetHeight + 'px';
             closeModal();
 
@@ -844,6 +821,7 @@
 
             document.querySelectorAll('textarea.cult-input, textarea.auto-grow').forEach(autoGrow);
             layoutInvestigations();
+            watchInvCards();
             document.querySelectorAll('.inv-board img').forEach(img => { if (!img.complete) img.addEventListener('load', layoutInvestigations, { once: true }); });
             main.style.minHeight = '';
             if (Math.abs(window.scrollY - keepY) > 1) window.scrollTo(0, keepY);
@@ -1015,7 +993,11 @@
                     return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top - 8 && e.clientY <= r.bottom + 8;
                 });
                 if (target && target !== item.parentElement) {
-                    const before = sortItemsOf(target).find(x => { const r = x.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+                    // first item that comes after the pointer in reading order (works for lists and 2-column grids)
+                    const before = sortItemsOf(target).find(x => {
+                        const r = x.getBoundingClientRect();
+                        return e.clientY < r.top || (e.clientY <= r.bottom && e.clientX < r.left + r.width / 2);
+                    });
                     if (before) before.before(item);
                     else target.appendChild(item);
                     const hint = target.querySelector(':scope > p');
@@ -1124,8 +1106,8 @@
                 const allPatients = Store.getPatients();
                 if (key === 'issues') {
                     moveItem(dayNoteFor(allPatients, patientId).activeIssues, from, to);
-                } else if (key === 'plan') {
-                    moveItem(dayNoteFor(allPatients, patientId).plan, from, to);
+                } else if (key === 'plan' || key === 'dcplan') {
+                    moveItem(planList(dayNoteFor(allPatients, patientId), key), from, to);
                 } else if (key === 'inv') {
                     moveItem(dayNoteFor(allPatients, patientId).investigations, from, to);
                 } else if (key === 'medbg') {
@@ -1209,9 +1191,10 @@
                         note.activeIssues.splice(idx, 1);
                         removed = { section, idx };
                     }
-                } else if (section === 'plan' && note && note.plan[idx]) {
-                    if (!(note.plan[idx].text || '').trim()) {
-                        note.plan.splice(idx, 1);
+                } else if ((section === 'plan' || section === 'dcplan') && note) {
+                    const list = planList(note, section);
+                    if (list[idx] && !(list[idx].text || '').trim()) {
+                        list.splice(idx, 1);
                         removed = { section, idx };
                     }
                 }
@@ -1234,6 +1217,10 @@
                 const action = e.target.getAttribute('data-enter');
                 if (action === 'add-treatment') {
                     addTreatmentLine(editing.patientId, editing.idx);
+                } else if (action === 'add-plan') {
+                    // Enter on a filled line starts a new one; Enter on an empty line finishes.
+                    if (e.target.value.trim()) addPlanItem(editing.patientId, editing.section);
+                    else stopEditing();
                 } else {
                     stopEditing();
                 }
@@ -1369,7 +1356,8 @@
             const add = (n) => { const k = String(n || '').trim().toLowerCase(); if (k && !names.includes(k)) names.push(k); };
             (day.inpatientIds || []).forEach(id => { const p = all.find(x => x.id === id); if (p) add(getDayInfo(p, date).physician); });
             (day.physicians || []).forEach(add);
-            (day.consultIds || []).forEach(id => { const p = all.find(x => x.id === id); if (p) add(getDayInfo(p, entryKey(date, 'consult')).physician); });
+            (day.consultIds || []).forEach(id => { const p = all.find(x => x.id === id); if (p) add(getDayInfo(p, entryKey(date, 'consult')).consultant); });
+            (day.consultPhysicians || []).forEach(add);
             return names;
         }
         function dayColorMap(date) {
@@ -1457,13 +1445,18 @@
             renderApp();
         }
 
-        function ensurePhysicianExists(drName) {
+        // Inpatients: the "physician" field and day.physicians. Consults: "consultant" and day.consultPhysicians
+        // (on consults the "physician" field is the primary team).
+        function physField(type) { return type === 'consult' ? 'consultant' : 'physician'; }
+        function physListKey(type) { return type === 'consult' ? 'consultPhysicians' : 'physicians'; }
+        function ensurePhysicianExists(drName, type = 'inpatient') {
             if (!drName || !drName.trim()) return;
             const trimmed = drName.trim();
             const records = Store.getDailyRecords();
             const day = getOrCreateDay(records, currentViewDate);
-            if (!day.physicians.includes(trimmed)) {
-                day.physicians.push(trimmed);
+            const lk = physListKey(type);
+            if (!day[lk].includes(trimmed)) {
+                day[lk].push(trimmed);
                 Store.saveDailyRecords(records);
             }
         }
@@ -1557,14 +1550,16 @@
         const LIST_CFG = {
             inpatient: {
                 idsKey: 'inpatientIds', sortKey: 'inpatients', route: 'inpatient',
-                title: 'Active Inpatients', empty: 'No inpatients recorded for this day.',
+                title: 'Active Inpatients', empty: 'No inpatients recorded for this day.', icon: 'fa-bed-pulse',
+                tone: { title: 'text-orange-800', icon: 'text-orange-500', soft: 'bg-orange-50 hover:bg-orange-100 text-orange-600', edit: 'border-orange-300', btn: 'bg-orange-600 hover:bg-orange-700', check: 'accent-orange-600' },
                 accentBtn: 'bg-orange-600 hover:bg-orange-700', accentSoft: 'bg-orange-50 text-orange-600 hover:bg-orange-100', accentHover: 'hover:border-orange-300', accentText: 'hover:text-orange-600', dayChip: 'bg-orange-50 text-orange-700',
                 physLabel: 'Physician', physPlaceholder: 'Physician name', admShort: 'Admitted', admLabel: 'Admitted on', dayLabel: 'Admission', dateField: 'admissionDate',
                 issuesLabel: 'Active Issues', issuesEmpty: 'No active issues recorded'
             },
             consult: {
                 idsKey: 'consultIds', sortKey: 'consults', route: 'consult',
-                title: 'Active Consults', empty: 'No consult patients for this day.',
+                title: 'Active Consults', empty: 'No consult patients for this day.', icon: 'fa-user-doctor',
+                tone: { title: 'text-indigo-800', icon: 'text-indigo-500', soft: 'bg-indigo-50 hover:bg-indigo-100 text-indigo-600', edit: 'border-indigo-300', btn: 'bg-indigo-600 hover:bg-indigo-700', check: 'accent-indigo-600' },
                 accentBtn: 'bg-indigo-600 hover:bg-indigo-700', accentSoft: 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100', accentHover: 'hover:border-indigo-300', accentText: 'hover:text-indigo-600', dayChip: 'bg-indigo-50 text-indigo-700',
                 physLabel: 'Primary Team', physPlaceholder: 'Primary team', admShort: 'Consult', admLabel: 'Admitted on', dayLabel: 'Admission', dateField: 'consultDate',
                 issuesLabel: 'Consult Details', issuesEmpty: 'No consult details recorded'
@@ -1592,33 +1587,34 @@
 
         // Physicians box = everyone assigned to today's inpatients, plus any added by hand.
         // Physicians box = everyone assigned to today's inpatients, plus any added by hand.
-        function physicianRows(dayData, dayPatients) {
+        function physicianRows(dayData, dayPatients, type = 'inpatient') {
             const counts = {};
             const order = [];
+            const field = physField(type);
             dayPatients.forEach(p => {
-                const d = (p.physician || '').trim();
+                const d = (p[field] || '').trim();
                 if (!d) return;
                 if (!(d in counts)) { counts[d] = 0; order.push(d); }
                 counts[d]++;
             });
-            (dayData.physicians || []).forEach(d => {
+            (dayData[physListKey(type)] || []).forEach(d => {
                 if (!(d in counts)) { counts[d] = 0; order.push(d); }
             });
             return order.map(name => ({ name, count: counts[name] }));
         }
 
         // Update: trims the list to the physicians actually assigned to this day's inpatients.
-        function refreshPhysiciansFromPatients() {
+        function refreshPhysiciansFromPatients(type = 'inpatient') {
             const records = Store.getDailyRecords();
             const day = getOrCreateDay(records, currentViewDate);
             const allPatients = Store.getPatients();
             const names = [];
-            day.inpatientIds.forEach(id => {
+            (type === 'consult' ? day.consultIds : day.inpatientIds).forEach(id => {
                 const p = allPatients.find(x => x.id === id);
-                const d = p ? (getDayInfo(p, currentViewDate).physician || '').trim() : '';
+                const d = p ? (getDayInfo(p, entryKey(currentViewDate, type))[physField(type)] || '').trim() : '';
                 if (d && !names.includes(d)) names.push(d);
             });
-            day.physicians = names;
+            day[physListKey(type)] = names;
             Store.saveDailyRecords(records);
             renderApp();
             showToast('Physicians list updated');
@@ -1656,7 +1652,7 @@
                 .filter(Boolean)
                 .map(p => effectivePatient(p, entryKey(currentViewDate, type)));
             const settings = Store.getSettings();
-            const phys = isConsult ? [] : physicianRows(dayData, dayPatients);
+            const phys = physicianRows(dayData, dayPatients, type);
 
             const cards = dayPatients.map(p => renderListCard(p, type, settings)).join('');
 
@@ -1685,8 +1681,8 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 ${isConsult ? '' : 'lg:grid-cols-4'} gap-4">
-                        ${isConsult ? '' : `
+                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                        ${`
                             <div class="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col ${physiciansCollapsed() ? '' : 'space-y-3'} self-start">
                                 <div class="flex items-center justify-between">
                                     <button onclick="togglePhysiciansBox()" class="font-bold text-slate-800 text-sm flex items-center gap-2">
@@ -1694,8 +1690,8 @@
                                         <i class="fa-solid fa-chevron-${physiciansCollapsed() ? 'down' : 'up'} text-[10px] text-slate-400"></i>
                                     </button>
                                     <div class="flex items-center gap-1">
-                                        <button onclick="refreshPhysiciansFromPatients()" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs transition" title="Update: keep only physicians assigned to patients"><i class="fa-solid fa-rotate"></i></button>
-                                        <button onclick="openAddPhysicianModal()" class="px-2 py-1 bg-orange-50 hover:bg-orange-100 text-orange-600 rounded-lg text-xs font-semibold transition"><i class="fa-solid fa-plus"></i> Add</button>
+                                        <button onclick="refreshPhysiciansFromPatients('${type}')" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs transition" title="Update: keep only physicians assigned to patients"><i class="fa-solid fa-rotate"></i></button>
+                                        <button onclick="openAddPhysicianModal('${type}')" class="px-2 py-1 ${cfg.accentSoft} rounded-lg text-xs font-semibold transition"><i class="fa-solid fa-plus"></i> Add</button>
                                     </div>
                                 </div>
                                 <div class="space-y-2 ${physiciansCollapsed() ? 'hidden' : ''}">
@@ -1709,7 +1705,7 @@
                                                 </button>
                                                 <div class="flex items-center space-x-2">
                                                     <span class="px-2.5 py-0.5 rounded-full font-extrabold text-xs bg-white/80 text-slate-800">${dr.count}</span>
-                                                    <button onclick="removePhysicianFromList(${jsArg(dr.name)})" class="text-rose-600 hover:text-rose-800 text-xs" title="Remove"><i class="fa-solid fa-trash"></i></button>
+                                                    <button onclick="removePhysicianFromList(${jsArg(dr.name)}, '${type}')" class="text-rose-600 hover:text-rose-800 text-xs" title="Remove"><i class="fa-solid fa-trash"></i></button>
                                                 </div>
                                             </div>
                                         `;
@@ -1718,7 +1714,7 @@
                             </div>
                         `}
 
-                        <div class="${isConsult ? '' : 'lg:col-span-3'} flex flex-col space-y-4 min-w-0">
+                        <div class="lg:col-span-3 flex flex-col space-y-4 min-w-0">
                             <div class="flex items-center justify-between">
                                 <h3 class="font-bold text-slate-800 text-sm">${cfg.title}</h3>
                                 <button onclick="openAddPatientModal('${type}')" class="px-3 py-1.5 ${cfg.accentBtn} text-white rounded-xl text-xs font-medium transition flex items-center gap-1.5 shadow-sm">
@@ -1736,7 +1732,7 @@
                                 ${cards}
                             </div>
 
-                            ${isConsult ? '' : renderPostDcBox(dayData)}
+                            ${renderPostDcBox(dayData, cfg.tone)}
                         </div>
                     </div>
                 </div>
@@ -1765,7 +1761,8 @@
             const gocObj = settings.goalsOfCare.find(g => g.name.toLowerCase() === (p.goalsOfCare || '').toLowerCase());
             const gocBg = gocObj ? gocObj.color : '#f8fafc';
             const gocColor = gocObj && gocObj.fontColor ? gocObj.fontColor : '#1e293b';
-            const drColor = getPhysicianColor(p.physician);
+            const cardDr = isConsult ? p.consultant : p.physician; // the card takes the physician's colour
+            const drColor = getPhysicianColor(cardDr);
             const genderBg = p.gender === 'F' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700';
             const memoBtn = (onclick, label, icon, text, on, off) => `
                 <button onclick="${onclick}" title="${esc(text || 'Add ' + label.toLowerCase())}" class="px-2.5 py-1 rounded-lg text-[11px] font-medium transition flex items-center gap-1.5 shadow-xs border ${text ? on : off}">
@@ -1773,8 +1770,8 @@
                 </button>`;
 
             return `
-                <div data-sort-item data-id="${esc(p.id)}" class="size-scale flex rounded-2xl border-2 shadow-sm relative transition" style="background-color: ${p.physician ? drColor.bg : '#ffffff'}; border-color: ${p.physician ? drColor.border : '#e2e8f0'}">
-                    ${gripHandle('rounded-r-2xl', p.physician ? { bg: 'rgba(255,255,255,0.45)', fg: drColor.border } : 'bg-slate-100 text-slate-400')}
+                <div data-sort-item data-id="${esc(p.id)}" class="size-scale flex rounded-2xl border-2 shadow-sm relative transition" style="background-color: ${cardDr ? drColor.bg : '#ffffff'}; border-color: ${cardDr ? drColor.border : '#e2e8f0'}">
+                    ${gripHandle('rounded-r-2xl', cardDr ? { bg: 'rgba(255,255,255,0.45)', fg: drColor.border } : 'bg-slate-100 text-slate-400')}
                     <div class="flex-1 min-w-0 p-3 sm:p-4 flex flex-col space-y-2.5">
                         <div class="flex flex-col lg:flex-row lg:flex-wrap items-center lg:justify-between gap-1.5">
                             <div class="flex items-center justify-center lg:justify-start gap-1.5 flex-wrap">
@@ -1865,6 +1862,13 @@
                                         <input type="text" value="${esc(p.physician || '')}" onchange="onPhysicianNameChanged(${id}, this.value)" class="w-24 bg-white/90 border rounded px-1 text-[11px] font-bold text-slate-800" placeholder="${cfg.physPlaceholder}">
                                     ` : `<span>${orMissing(p.physician)}</span>`}
                                 </div>
+                                ${isConsult ? `
+                                <div class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 shadow-xs flex items-center gap-1.5 font-bold" title="Physician">
+                                    <span class="text-[9px] uppercase font-semibold opacity-75">Dr</span>
+                                    ${isEditingMode ? `
+                                        <input type="text" value="${esc(p.consultant || '')}" onchange="onConsultantNameChanged(${id}, this.value)" class="w-24 bg-white/90 border rounded px-1 text-[11px] font-bold text-slate-800" placeholder="Physician">
+                                    ` : `<span>${orMissing(p.consultant)}</span>`}
+                                </div>` : ''}
                                 <div class="px-2.5 py-1 rounded-lg border shadow-xs flex items-center font-bold" style="background-color: ${esc(gocBg)}; color: ${esc(gocColor)}" title="Goals of care">
                                     ${isEditingMode ? `
                                         <select onchange="updatePatientField(${id}, 'goalsOfCare', this.value); renderApp()" class="bg-white/90 border rounded px-1 text-[11px] font-bold text-slate-800">
@@ -1902,32 +1906,32 @@
             `;
         }
 
-        function renderPostDcBox(dayData) {
+        function renderPostDcBox(dayData, T = LIST_CFG.inpatient.tone) {
             return `
                 <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm mt-6">
                     <div class="flex items-center justify-between mb-3 gap-2 flex-wrap">
                         <h4 class="font-bold text-slate-800 text-sm flex items-center gap-2">
-                            <i class="fa-solid fa-list-check text-orange-500"></i> Post D/C Follow Ups
+                            <i class="fa-solid fa-list-check ${T.icon}"></i> Post D/C Follow Ups
                         </h4>
                         <div class="flex items-center gap-2">
                             ${dayData.postDc.length ? `
-                                <button onclick="addPostDcToTomorrow()" class="px-2.5 py-1.5 bg-orange-50 hover:bg-orange-100 rounded-lg text-xs font-semibold text-orange-600 transition flex items-center gap-1.5" title="Copy unfinished follow-ups to tomorrow's list"><i class="fa-solid fa-calendar-plus"></i> Add All to Tomorrow</button>
+                                <button onclick="addPostDcToTomorrow()" class="px-2.5 py-1.5 ${T.soft} rounded-lg text-xs font-semibold transition flex items-center gap-1.5" title="Copy unfinished follow-ups to tomorrow's list"><i class="fa-solid fa-calendar-plus"></i> Add All to Tomorrow</button>
                             ` : ''}
-                            <button data-edit-trigger onclick="addPostDcItem()" class="px-3 py-1.5 bg-orange-50 hover:bg-orange-100 rounded-lg text-xs font-semibold text-orango-600 transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
+                            <button data-edit-trigger onclick="addPostDcItem()" class="px-3 py-1.5 ${T.soft} rounded-lg text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
                         </div>
                     </div>
                     <div class="space-y-2">
                         ${dayData.postDc.length === 0 ? '<p class="text-xs text-slate-400 italic">No post-discharge follow-ups listed.</p>' : ''}
                         ${dayData.postDc.map((item, idx) => isEditingItem('postdc', idx, null) ? `
-                            <div data-editing class="flex items-center p-2 rounded-xl bg-white border-2 border-indigo-300 gap-2">
+                            <div data-editing class="flex items-center p-2 rounded-xl bg-white border-2 ${T.edit} gap-2">
                                 <input type="text" value="${esc(item.text || '')}" oninput="updatePostDcTextLive(${idx}, this.value)" data-enter="done" class="text-sm flex-1 min-w-0 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800" placeholder="Follow-up task...">
                                 <button onclick="deletePostDcItem(${idx})" class="text-slate-400 hover:text-rose-600 px-1.5" title="Delete"><i class="fa-solid fa-trash text-xs"></i></button>
-                                <button onclick="stopEditing()" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-semibold">Done</button>
+                                <button onclick="stopEditing()" class="px-3 py-1 ${T.btn} text-white rounded-lg text-[11px] font-semibold">Done</button>
                             </div>
                         ` : `
                             <div class="flex items-center rounded-xl bg-slate-50 border border-slate-200/80 overflow-hidden">
                                 <label class="flex items-center px-3 py-2 cursor-pointer" onclick="event.stopPropagation()">
-                                    <input type="checkbox" ${item.completed ? 'checked' : ''} onchange="togglePostDcItem(${idx})" class="w-4 h-4 text-indigo-600 rounded border-slate-300 focus:ring-indigo-500">
+                                    <input type="checkbox" ${item.completed ? 'checked' : ''} onchange="togglePostDcItem(${idx})" class="w-4 h-4 ${T.check} rounded border-slate-300">
                                 </label>
                                 <div data-edit-trigger onclick="startEditing('postdc', ${idx}, 'input[type=&quot;text&quot;]', null)" class="edit-trigger flex-1 min-w-0 py-2 pr-3 text-sm break-words ${item.completed ? 'line-through text-slate-400' : 'text-slate-700'}" title="Click to edit">
                                     ${esc(item.text) || '<span class="text-slate-400 italic">Empty item</span>'}
@@ -2084,7 +2088,7 @@
             const gocBg = gocObj ? gocObj.color : '#f8fafc';
             const gocColor = gocObj && gocObj.fontColor ? gocObj.fontColor : '#1e293b';
 
-            const drColor = getPhysicianColor(patient.physician);
+            const drColor = getPhysicianColor(isConsult ? patient.consultant : patient.physician);
             const genderBg = patient.gender === 'F' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700';
 
             const diffDays = admissionDayNumber(patient);
@@ -2093,11 +2097,11 @@
             const existingNote = getDayNote(rawPatient, curKey());
             const note = existingNote || emptyNote();
             const prevDate = previousNoteDate(rawPatient, curKey());
-            // Opening a record: Medical Background and Investigations start collapsed when empty.
-            if (freshRecordOpen) {
-                freshRecordOpen = false;
-                isMedicalBgCollapsed = (patient.medicalBackground || []).length === 0;
-                invBoxCollapsed = false;
+            // Opening an entry: boxes open on the first visit, otherwise only the ones you chose to open.
+            const vk = rawPatient.id + '|' + curKey();
+            if (vk !== viewEntryKey) {
+                viewEntryKey = vk;
+                if (applyEntryView(rawPatient, curKey())) Store.savePatients(allPatients);
             }
 
             // Shown when this patient has no note for the selected day.
@@ -2169,10 +2173,19 @@
                         <!-- ACTIVE ISSUES + PLAN: side by side on wide landscape screens, stacked otherwise -->
                         <div class="issues-plan-grid">
                             ${renderIssuesBox(note, settings, rawPatient.id, pid, isConsult)}
-                            ${renderPlanBox(note, rawPatient.id, pid)}
+                            <div class="flex flex-col gap-4 min-w-0">
+                                ${renderPlanBox(note, rawPatient.id, pid, 'plan', isConsult)}
+                                ${isConsult ? '' : renderPlanBox(note, rawPatient.id, pid, 'dcplan')}
+                            </div>
                         </div>
 
                         ${renderInvestigationsBox(rawPatient, note, pid)}
+
+                        <div class="flex justify-center pt-2 pb-4">
+                            <button onclick="openNoteExtract(${pid})" class="px-6 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold shadow-md flex items-center gap-2 transition">
+                                <i class="fa-solid fa-file-lines"></i> Extract Note
+                            </button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -2210,7 +2223,7 @@
         function missingFields(p, isConsult = false) {
             return requiredFor(isConsult).filter(([f]) => !String(p[f] || '').trim()).map(([f]) => f);
         }
-        const TEXT_TILES = ['ward', 'room', 'bed', 'physician', 'name', 'mrn', 'dob', 'admissionDate', 'consultDate'];
+        const TEXT_TILES = ['ward', 'room', 'bed', 'physician', 'consultant', 'name', 'mrn', 'dob', 'admissionDate', 'consultDate'];
 
         function commitTile(patientId, field, value) {
             if (editingTile !== field) return;
@@ -2348,7 +2361,7 @@
                             </button>
                         </div>
                     ` : ''}
-                    <div class="grid ${isConsult ? 'grid-cols-5 lg:grid-cols-9' : 'grid-cols-4 lg:grid-cols-8'} gap-1.5 sm:gap-2.5 text-center">
+                    <div class="grid ${isConsult ? 'grid-cols-5 lg:grid-cols-10' : 'grid-cols-4 lg:grid-cols-8'} gap-1.5 sm:gap-2.5 text-center">
                         ${textBox('ward', 'Ward', `<span class="${V}">${orMissing(patient.ward)}</span>`, { cls: '', style: `background-color: ${esc(c.wardBg)}; color: ${esc(c.wardColor)}`, labelCls: 'opacity-75' })}
                         ${textBox('room', 'Room', `<span class="${V} text-slate-800">${orMissing(patient.room)}</span>`)}
                         ${textBox('bed', 'Bed', `<span class="${V} text-slate-800">${orMissing(patient.bed)}</span>`)}
@@ -2357,7 +2370,10 @@
                         ${admittedBox}
                         ${consultBox}
                         ${selectBox('goalsOfCare', 'Goals of Care', `<span class="${V}">${orMissing(patient.goalsOfCare)}</span>`, settings.goalsOfCare.map(g => g.name), { cls: '', style: `background-color: ${esc(c.gocBg)}; color: ${esc(c.gocColor)}`, labelCls: 'opacity-75' })}
-                        ${textBox('physician', cfg.physLabel, `<span class="${V} block">${orMissing(patient.physician)}</span>`, { cls: '', style: `background-color: ${c.drColor.bg}; border-color: ${c.drColor.border}; color: ${c.drColor.text}`, labelCls: 'opacity-75' })}
+                        ${isConsult
+                            ? textBox('physician', cfg.physLabel, `<span class="${V} block text-slate-800">${orMissing(patient.physician)}</span>`)
+                              + textBox('consultant', 'Physician', `<span class="${V} block">${orMissing(patient.consultant)}</span>`, { cls: '', style: `background-color: ${c.drColor.bg}; border-color: ${c.drColor.border}; color: ${c.drColor.text}`, labelCls: 'opacity-75' })
+                            : textBox('physician', cfg.physLabel, `<span class="${V} block">${orMissing(patient.physician)}</span>`, { cls: '', style: `background-color: ${c.drColor.bg}; border-color: ${c.drColor.border}; color: ${c.drColor.text}`, labelCls: 'opacity-75' })}
                     </div>
                 </div>
             `;
@@ -2637,42 +2653,684 @@
             `;
         }
 
-        function renderPlanBox(note, patientId, pid) {
-            const plan = note.plan || [];
+        // Plan and Discharge Plan share this box. kind: 'plan' | 'dcplan'.
+        const PLAN_KINDS = {
+            plan:   { key: 'plan',   title: 'Plan',           icon: 'fa-clipboard-check', empty: 'No plan items recorded.',
+                      box: 'bg-emerald-50 border-emerald-300', titleCls: 'text-emerald-900', iconCls: 'text-emerald-600', btn: 'bg-emerald-600 hover:bg-emerald-700',
+                      item: 'border-emerald-200', edit: 'border-emerald-500', grip: 'bg-emerald-100 text-emerald-500', check: 'accent-emerald-600', emptyCls: 'text-emerald-700/60', ph: 'Plan item...' },
+            dcplan: { key: 'dcPlan', title: 'Discharge Plan', icon: 'fa-house-medical', empty: 'No discharge plan yet.',
+                      box: 'bg-green-100/60 border-green-700/50', titleCls: 'text-green-950', iconCls: 'text-green-800', btn: 'bg-green-800 hover:bg-green-900',
+                      item: 'border-green-300', edit: 'border-green-700', grip: 'bg-green-200 text-green-700', check: 'accent-green-800', emptyCls: 'text-green-900/60', ph: 'Discharge plan item...' }
+        };
+        let dcPlanCollapsed = false;
+        function toggleDcPlanCollapse() { dcPlanCollapsed = !dcPlanCollapsed; noteViewChoice('dcplan', !dcPlanCollapsed); renderApp(); }
+
+        function renderPlanBox(note, patientId, pid, kind = 'plan', isConsult = false) {
+            const K = PLAN_KINDS[kind];
+            const plan = note[K.key] || [];
+            const isDc = kind === 'dcplan';
+            const isSignOff = kind === 'plan' && isConsult; // consult entries: "Sign off" sits in the Plan box
+            const collapsed = isDc && dcPlanCollapsed;
+            const dc = note.discharge;
+            const titleHtml = `<h3 class="font-bold ${K.titleCls} text-[14px] sm:text-[17px] flex items-center gap-2"><i class="fa-solid ${K.icon} ${K.iconCls}"></i> ${K.title}
+                ${isDc ? `<span class="text-[11px] font-semibold opacity-50">(${plan.length})</span><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-xs opacity-50"></i>` : ''}
+                ${isDc && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : 'Discharged'}</span>` : ''}
+                ${isSignOff && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-700 text-white">Signed off</span>` : ''}</h3>`;
             return `
-                <div class="size-scale bg-emerald-50 p-2.5 sm:p-4 rounded-2xl border-2 border-emerald-300 shadow-sm min-w-0">
-                    <div class="flex items-center justify-between mb-2 sm:mb-3">
-                        <h3 class="font-bold text-emerald-900 text-[14px] sm:text-[17px] flex items-center gap-2"><i class="fa-solid fa-clipboard-check text-emerald-600"></i> Plan</h3>
-                        <div class="flex items-center gap-2">
-                            ${plan.length ? `<button onclick="clearPlan(${pid})" class="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-trash"></i> Clear All</button>` : ''}
-                            <button data-edit-trigger onclick="addPlanItem(${pid})" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
+                <div class="size-scale ${K.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
+                    <div class="flex items-center justify-between ${collapsed ? '' : 'mb-2 sm:mb-3'}">
+                        ${isDc ? `<button onclick="toggleDcPlanCollapse()" class="text-left">${titleHtml}</button>` : titleHtml}
+                        <div class="flex items-center gap-2 ${collapsed ? 'hidden' : ''}">
+                            ${plan.length ? `<button onclick="clearPlan(${pid}, '${kind}')" class="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-trash"></i> Clear All</button>` : ''}
+                            <button data-edit-trigger onclick="addPlanItem(${pid}, '${kind}')" class="px-3 py-1.5 ${K.btn} text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
                         </div>
                     </div>
-                    ${plan.length === 0 ? '<p class="text-xs text-emerald-700/60 italic">No plan items recorded.</p>' : ''}
-                    <div class="space-y-2" data-sort-list="plan" data-patient-id="${esc(patientId)}">
-                        ${plan.map((pl, idx) => isEditingItem('plan', idx, patientId) ? `
-                            <div data-sort-item data-id="${esc(pl.id || '')}" data-editing class="flex items-stretch rounded-xl border-2 border-emerald-500 bg-white overflow-hidden">
-                                ${gripHandle('rounded-r-lg', 'bg-emerald-100 text-emerald-500')}
+                    <div class="${collapsed ? 'hidden' : ''}">
+                    ${plan.length === 0 ? `<p class="text-xs ${K.emptyCls} italic">${K.empty}</p>` : ''}
+                    <div class="space-y-2" data-sort-list="${kind}" data-patient-id="${esc(patientId)}">
+                        ${plan.map((pl, idx) => isEditingItem(kind, idx, patientId) ? `
+                            <div data-sort-item data-id="${esc(pl.id || '')}" data-editing class="flex items-stretch rounded-xl border-2 ${K.edit} bg-white overflow-hidden">
+                                ${gripHandle('rounded-r-lg', K.grip)}
                                 <div class="flex-1 min-w-0 flex items-center gap-2 p-2">
-                                    <textarea rows="1" oninput="autoGrow(this); updatePlanTextLive(${pid}, ${idx}, this.value)" data-enter="done" class="auto-grow resize-none flex-1 min-w-0 text-[13px] sm:text-[15px] bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-900" placeholder="Plan item...">${esc(pl.text || '')}</textarea>
-                                    <button onclick="deletePlanItem(${pid}, ${idx})" class="text-slate-400 hover:text-rose-600 px-1.5" title="Delete"><i class="fa-solid fa-trash text-xs"></i></button>
-                                    <button onclick="stopEditing()" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-semibold">Done</button>
+                                    <textarea rows="1" oninput="autoGrow(this); updatePlanTextLive(${pid}, ${idx}, this.value, '${kind}')" data-enter="add-plan" class="auto-grow resize-none flex-1 min-w-0 text-[13px] sm:text-[15px] bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-900" placeholder="${K.ph}">${esc(pl.text || '')}</textarea>
+                                    <button onclick="deletePlanItem(${pid}, ${idx}, '${kind}')" class="text-slate-400 hover:text-rose-600 px-1.5" title="Delete"><i class="fa-solid fa-trash text-xs"></i></button>
+                                    <button onclick="stopEditing()" class="px-3 py-1 ${K.btn} text-white rounded-lg text-[11px] font-semibold">Done</button>
                                 </div>
                             </div>
                         ` : `
-                            <div data-sort-item data-id="${esc(pl.id || '')}" class="flex items-stretch rounded-xl bg-white border border-emerald-200 overflow-hidden">
-                                ${gripHandle('rounded-r-lg', 'bg-emerald-100 text-emerald-500')}
+                            <div data-sort-item data-id="${esc(pl.id || '')}" class="flex items-stretch rounded-xl bg-white border ${K.item} overflow-hidden">
+                                ${gripHandle('rounded-r-lg', K.grip)}
                                 <label class="flex items-center px-3 cursor-pointer" onclick="event.stopPropagation()">
-                                    <input type="checkbox" ${pl.completed ? 'checked' : ''} onchange="togglePlanItem(${pid}, ${idx})" class="w-4 h-4 accent-emerald-600 text-emerald-600 rounded border-slate-300">
+                                    <input type="checkbox" ${pl.completed ? 'checked' : ''} onchange="togglePlanItem(${pid}, ${idx}, '${kind}')" class="w-4 h-4 ${K.check} rounded border-slate-300">
                                 </label>
-                                <div data-edit-trigger onclick="startEditing('plan', ${idx})" class="edit-trigger flex-1 min-w-0 py-1.5 sm:py-2 pr-3 text-[13px] sm:text-[15px] font-semibold break-words ${pl.completed ? 'line-through text-slate-400' : 'text-slate-900'}" title="Click to edit">
+                                <div data-edit-trigger onclick="startEditing('${kind}', ${idx})" class="edit-trigger flex-1 min-w-0 py-1.5 sm:py-2 pr-3 text-[13px] sm:text-[15px] font-semibold break-words ${pl.completed ? 'line-through text-slate-400' : 'text-slate-900'}" title="Click to edit">
                                     ${esc(pl.text) || '<span class="text-slate-400 italic font-medium">Empty item</span>'}
                                 </div>
                             </div>
                         `).join('')}
                     </div>
+                    ${isDc ? `
+                        <div class="flex justify-center pt-3">
+                            ${dc ? `
+                                <button onclick="reverseDischarge(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition ${dc.to === 'expired' ? 'bg-red-800 hover:bg-red-900' : 'bg-green-800 hover:bg-green-900'} text-white shadow-sm" title="Tap to reverse the discharge">
+                                    <i class="fa-solid fa-circle-check"></i> ${dc.to === 'expired' ? 'Discharged · Expired' : 'Discharged · Home'}
+                                </button>` : `
+                                <button onclick="openDischargeModal(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-white hover:bg-green-50 text-green-800 border-2 border-green-700 shadow-sm">
+                                    <i class="fa-solid fa-door-open"></i> Discharge
+                                </button>`}
+                        </div>` : ''}
+                    ${isSignOff ? `
+                        <div class="flex justify-center pt-3">
+                            ${dc ? `
+                                <button onclick="reverseDischarge(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm" title="Tap to reverse the sign-off">
+                                    <i class="fa-solid fa-circle-check"></i> Signed off
+                                </button>` : `
+                                <button onclick="openDischargeModal(${pid}, true)" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-white hover:bg-emerald-50 text-emerald-800 border-2 border-emerald-600 shadow-sm">
+                                    <i class="fa-solid fa-hand-point-right"></i> Sign off
+                                </button>`}
+                        </div>` : ''}
+                    </div>
                 </div>
             `;
+        }
+
+
+        /* =========================================================
+           EXTRACT NOTE
+           Builds the note from your Word form (inpatient and consult versions):
+           black text = kept as written, blue = filled in from the entry, red = instructions (left out),
+           green = fields you fill in each time (highlighted, editable, not saved).
+           Lines are { parts: [{ t, ph }], b, u, i, center }; an empty parts list is a blank line.
+           ========================================================= */
+        const NT = (t) => ({ t: String(t ?? '') });
+        const NB = (t) => ({ t: String(t ?? ''), b: true }); // bold words inside a line
+        const NPH = (t) => ({ t, ph: true });
+        const NL = (parts = [], fmt = {}) => ({ parts: Array.isArray(parts) ? parts : [parts], ...fmt });
+        const NBLANK = () => NL([]);
+        const NTEXT = (t, fmt) => NL([NT(t)], fmt);
+        function withDot(t) {
+            const s = String(t || '').trim();
+            return s && !/[.!?:;]$/.test(s) ? s + '.' : s;
+        }
+        // Multi-line text becomes several lines.
+        function textLines(t, fmt) {
+            return String(t || '').split(/\r?\n/).map(x => x.trimEnd()).filter((x, i, a) => x || (i > 0 && i < a.length - 1)).map(x => x ? NTEXT(x, fmt) : NBLANK());
+        }
+
+        // Rows of a table card as shown (removed components left out): label, value key, calculated?
+        function extractRows(panel) {
+            if (panel.type === 'labs') return (panel.rows || []).map(name => ({ label: name, key: customLabKey(name) }));
+            const valueType = panel.type === 'ulytes' && panel.mode === '24h' ? 'ulytes24' : panel.type;
+            return panelSetRows(panel).map(r => ({
+                label: r.label, unit: r.unit || '', calc: r.calc || null,
+                key: panel.type === 'custom' ? `${panel.setId}.${r.k}` : labKey(valueType, r.k)
+            }));
+        }
+        function extractValue(raw, key, row) {
+            if (row.calc) return calcValue(raw, key, row.calc);
+            const v = labValue(raw, key, row.key);
+            return v === undefined || v === null ? '' : String(v).trim();
+        }
+
+        const COL = '\t\t'; // two tab spaces between columns of data
+        // A table card as lines: card name (with today's and the day before's dates), then "label<tab>today<tab>day before".
+        // noDash (Vitals, I/O): an empty value is left blank instead of "—", and the day-before column
+        // is only shown when something was recorded that day.
+        function tableCardLines(raw, panel, title, date, type, headFmt, noDash = false) {
+            const key = entryKey(date, type), prevKey = entryKey(addDays(date, -1), type);
+            const rows = extractRows(panel)
+                .map(r => ({ r, now: extractValue(raw, key, r), prev: extractValue(raw, prevKey, r) }))
+                .filter(x => x.now || x.prev);
+            if (!rows.length) return [];
+            const unit = (r) => r.unit ? (/^[%°]/.test(r.unit) ? '' : ' ') + r.unit : '';
+            const empty = noDash ? '' : '—';
+            const showPrev = !noDash || rows.some(x => x.prev);
+            const line = (cells) => { const c = [...cells]; if (noDash) while (c.length > 1 && !c[c.length - 1]) c.pop(); return c.join(COL); };
+            return [
+                headFmt(line([title, `[${fmtMD(date)}]`, ...(showPrev ? [`[${fmtMD(addDays(date, -1))}]`] : [])])),
+                ...rows.map(({ r, now, prev }) => NTEXT(line([r.label, now ? now + unit(r) : empty, ...(showPrev ? [prev ? prev + unit(r) : empty] : [])])))
+            ];
+        }
+        // [1] Clinical: "• Vitals" and "• I/O" blocks, only for cards on this entry. No units.
+        //   Vitals: today and the day before (if recorded); BP as SBP/DBP(MAP); oxygen as "SpO2% on <supp O2>".
+        //   I/O: "Intake⇥⇥Output⇥⇥Balance" header, then today's values.
+        function extractClinical(raw, note, date, type) {
+            const key = entryKey(date, type), prevKey = entryKey(addDays(date, -1), type);
+            const blocks = [];
+            const cards = note.investigations || [];
+            const vit = cards.find(x => x.type === 'vitals');
+            if (vit) {
+                const rows = extractRows(vit);
+                const has = (k) => rows.some(r => r.key === 'vitals.' + k);
+                const val = (k, kk) => has(k) ? (labValue(raw, kk, 'vitals.' + k) || '').toString().trim() : '';
+                const dayVals = (kk) => {
+                    const out = {};
+                    const sbp = val('sbp', kk), dbp = val('dbp', kk);
+                    const map = has('map') ? calcValue(raw, kk, 'map') : '';
+                    if (sbp || dbp) out.BP = `${sbp || '?'}/${dbp || '?'}${map ? `(${map})` : ''}`;
+                    rows.forEach(r => {
+                        const k = r.key.replace('vitals.', '');
+                        if (['sbp', 'dbp', 'map', 'spo2', 'fio2'].includes(k)) return;
+                        const v = r.calc ? calcValue(raw, kk, r.calc) : (labValue(raw, kk, r.key) || '').toString().trim();
+                        if (v) out[r.label] = v;
+                    });
+                    const spo2 = val('spo2', kk), o2 = val('fio2', kk);
+                    if (spo2 || o2) out.SpO2 = `${spo2 ? spo2 + '%' : '?'}${o2 ? ' on ' + o2 : ''}`;
+                    return out;
+                };
+                const now = dayVals(key), prev = dayVals(prevKey);
+                const order = ['BP', ...rows.filter(r => !['vitals.sbp', 'vitals.dbp', 'vitals.map', 'vitals.spo2', 'vitals.fio2'].includes(r.key)).map(r => r.label), 'SpO2'];
+                const labels = order.filter(l => now[l] || prev[l]);
+                if (labels.length) {
+                    const showPrev = labels.some(l => prev[l]);
+                    const line = (cells) => { const c = [...cells]; while (c.length > 1 && !c[c.length - 1]) c.pop(); return c.join(COL); };
+                    blocks.push([
+                        NL([NT('• '), NB('Vitals'), NT(COL + `[${fmtMD(date)}]` + (showPrev ? COL + `[${fmtMD(addDays(date, -1))}]` : ''))]),
+                        ...labels.map(l => NTEXT(line([l, now[l] || '', ...(showPrev ? [prev[l] || ''] : [])])))
+                    ]);
+                }
+            }
+            const io = cards.find(x => x.type === 'io');
+            if (io) {
+                const vals = extractRows(io).map(r => ({ label: r.label, v: extractValue(raw, key, r) }));
+                if (vals.some(x => x.v)) {
+                    blocks.push([
+                        NL([NT('• '), NB('I/O')]),
+                        NTEXT(vals.map(x => x.label).join(COL), { b: true, u: true }),
+                        NTEXT(vals.map(x => x.v || '').join(COL))
+                    ]);
+                }
+            }
+            return blocks;
+        }
+
+        function extractInvestigations(raw, note, date, type) {
+            const key = entryKey(date, type), prevKey = entryKey(addDays(date, -1), type);
+            const blocks = [];
+            (note.investigations || []).forEach(panel => {
+                if (panel.type === 'vitals' || panel.type === 'io' || panel.type === 'image') return; // vitals and I/O are under [1] Clinical
+                const def = panel.type === 'custom'
+                    ? { title: panel.title || (customSet(panel.setId) || {}).title || 'Lab set' }
+                    : (INV_TYPES[panel.type] || { title: panel.type });
+                const lines = [];
+                const head = (name) => NL([NT('• '), NB(name)]);
+                if (panel.type === 'text') {
+                    if ((panel.text || '').trim()) {
+                        lines.push(head((panel.title || '').trim() || 'Note'));
+                        lines.push(...textLines(panel.text));
+                    }
+                } else if (panel.type === 'cultures') {
+                    const pos = sortedRecs(raw, 'cultures').filter(r => (r.organism || '').trim() && !isNegativeStatus(r.status));
+                    if (pos.length) {
+                        lines.push(head('Cultures'));
+                        // Source [Date]⇥⇥bug: status
+                        pos.forEach(r => lines.push(NTEXT(`${[(r.culture || '').trim(), r.date ? `[${fmtDate(r.date)}]` : ''].filter(Boolean).join(' ')}${COL}${(r.organism || '').trim()}${(r.status || '').trim() ? ': ' + r.status.trim() : ''}`)));
+                    }
+                } else if (panel.type === 'pcr') {
+                    const recs = sortedRecs(raw, 'pcr').filter(recHasContent);
+                    if (recs.length) {
+                        lines.push(head('PCR'));
+                        // Source [Date]⇥⇥bug: Positive / Negative
+                        recs.forEach(r => {
+                            const res = r.result === 'pos' ? 'Positive' : r.result === 'neg' ? 'Negative' : '';
+                            lines.push(NTEXT(`${[(r.source || '').trim(), r.date ? `[${fmtDate(r.date)}]` : ''].filter(Boolean).join(' ')}${COL}${[(r.bug || '').trim(), res].filter(Boolean).join(': ')}`));
+                        });
+                    }
+                } else if (panel.type === 'ua') {
+                    const recs = sortedRecs(raw, 'ua').filter(recHasContent);
+                    if (recs.length) {
+                        lines.push(head('Urinalysis'));
+                        recs.forEach(r => {
+                            const pos = UA_FLAGS.filter(([k]) => (r.flags || {})[k]).map(([, l]) => l);
+                            // POC/Lab [Date] ⇥⇥Positive for: …
+                            const kind = r.kind === 'poc' ? 'POC' : r.kind === 'lab' ? 'Lab' : '';
+                            const uaHead = [kind, r.date ? `[${fmtDate(r.date)}]` : ''].filter(Boolean).join(' ') || 'Urinalysis';
+                            lines.push(NTEXT(`${uaHead} ${COL}${pos.length ? 'Positive for: ' + pos.join(', ') : 'Negative'}`));
+                        });
+                    }
+                } else {
+                    const title = def.title + (panel.type === 'ulytes' ? (panel.mode === '24h' ? ' (24 hr)' : ' (Spot)') : '');
+                    lines.push(...tableCardLines(raw, panel, title, date, type, (txt) => { const i = txt.indexOf(COL); return NL([NT('• '), NB(txt.slice(0, i)), NT(txt.slice(i))]); }));
+                }
+                if (lines.length) blocks.push(lines);
+            });
+            const out = [];
+            blocks.forEach((b, i) => { if (i) out.push(NBLANK()); out.push(...b); });
+            return out;
+        }
+
+        function issueLines(issue, n, dots = true) {
+            const lines = [NL([NB(`[${n}] `), NB((issue.issue || '').trim() || 'Untitled')])];
+            (issue.treatments || []).filter(t => (t.text || '').trim()).forEach(t => lines.push(NTEXT('• ' + (dots ? withDot(t.text) : t.text.trim()))));
+            return lines;
+        }
+
+        function buildNoteLines(patientId) {
+            const raw = Store.getPatients().find(x => x.id === patientId);
+            if (!raw) return [];
+            const type = currentEntryType, date = currentViewDate, key = curKey();
+            const p = effectivePatient(raw, key);
+            const note = getDayNote(raw, key) || emptyNote();
+            const H = { b: true, u: true };
+            const L = [];
+            const blank = (n = 1) => { for (let i = 0; i < n; i++) L.push(NBLANK()); };
+            const ageRaw = ageText(p, date) || '';
+            const age = ageRaw.replace(/^(\d+)\s*YO$/i, '$1-year-old');
+            const gender = p.gender === 'F' ? 'female' : p.gender === 'M' ? 'male' : '';
+            const mbList = (p.medicalBackground || []).filter(m => (m.condition || '').trim() || (m.treatment || '').trim());
+            const mbText = (m) => {
+                const cond = (m.condition || '').trim(), trt = (m.treatment || '').trim();
+                return withDot(trt ? cond.replace(/[.;:,]+$/, '') + ': ' + trt : cond);
+            };
+            const issues = note.activeIssues || [];
+            const resolved = note.resolvedIssues || [];
+            const header = (teamWord) => {
+                L.push(NTEXT('________________________'));
+                L.push(NTEXT(p.name || ''));
+                L.push(NL([NPH('TEAM'), NT(teamWord), NPH('NAME')], { b: true, u: true, center: true }));
+                blank();
+                L.push(NTEXT('CASE SUMMARY', H));
+                L.push(NL([NT('This is a '), NT(age || '—'), NT(', '), NT(gender || '—'), NT(', patient. Known case of:')]));
+            };
+            const assessment = () => {
+                L.push(NTEXT('ASSESSMENT', H));
+                L.push(NTEXT('[1] Clinical', { b: true }));
+                // a blank line after each card; cards not on the entry (or empty) are left out with their space
+                extractClinical(raw, note, date, type).forEach(b => { L.push(...b); blank(); });
+                L.push(NL([NPH('EXAMINATION')]));
+                ['• Conscious, oriented and alert. GCS 15/15',
+                 '• CVS: S1+S2 with no added sounds. No raised JVP noted',
+                 '• Chest: equal breathing bilaterally with no additional sounds.',
+                 '• Abdomen: soft and lax. Non tender.',
+                 '• LL: no edema or signs of DVT'].forEach(t => L.push(NTEXT(t)));
+                blank();
+                L.push(NTEXT('[2] Investigations', { b: true }));
+                L.push(...extractInvestigations(raw, note, date, type));
+            };
+            const resolvedSection = (dots, after) => {
+                if (!resolved.length) return; // no resolved issues: the whole section is left out
+                L.push(NTEXT('RESOLVED ISSUES', H));
+                resolved.forEach((ri, i) => { if (i) blank(); L.push(...issueLines(ri, i + 1, dots)); });
+                blank(after);
+            };
+            const bulletLines = (list) => (list || []).filter(x => (x.text || '').trim()).forEach(x => L.push(NTEXT('• ' + withDot(x.text))));
+
+            if (type !== 'consult') {
+                header(' Rounds with Dr. ');
+                mbList.forEach(m => L.push(NTEXT('• ' + mbText(m))));
+                blank();
+                L.push(NL([NT(`Admitted on [${p.admissionDate ? fmtDate(p.admissionDate) : '—'}] as a case of `), NPH('ISSUE'), NT('.')]));
+                blank(2);
+                L.push(NTEXT('ACTIVE ISSUES', H));
+                issues.forEach((ai, i) => {
+                    if (i) blank();
+                    L.push(...issueLines(ai, i + 1));
+                    L.push(NL([NT('↪ Update: '), NPH('UPDATE')], { i: true }));
+                });
+                blank();
+                resolvedSection(true, 1);
+                assessment();
+                blank(2);
+                L.push(NL([NT('PLAN as discussed with Dr. '), NPH('NAME')], H));
+                bulletLines(note.plan);
+                blank();
+                L.push(NTEXT('DISCHARGE PLAN', H));
+                bulletLines(note.dcPlan);
+            } else {
+                header(' Team with Dr. ');
+                mbList.forEach(m => L.push(NTEXT('• ' + mbText(m))));
+                blank();
+                const summary = (p.caseSummary || '').trim();
+                L.push(NTEXT(`Admitted on [${p.admissionDate ? fmtDate(p.admissionDate) : '—'}].${summary ? ' ' + withDot(summary.replace(/\s*\n+\s*/g, ' ')) : ''}`));
+                const first = issues[0] ? withDot(issues[0].issue || '') : '';
+                L.push(NTEXT(`We were consulted on [${p.consultDate ? fmtDate(p.consultDate) : '—'}] for ${first || '—.'}`));
+                blank(2);
+                L.push(NTEXT('RELEVANT ISSUES', H));
+                issues.forEach((ai, i) => { if (i) blank(); L.push(...issueLines(ai, i + 1)); });
+                blank();
+                L.push(NTEXT('UPDATES', H));
+                L.push(...textLines(note.memo));
+                blank();
+                resolvedSection(false, 1);
+                assessment();
+                blank(2);
+                L.push(NTEXT('IMPRESSION', H));
+                L.push(NL([NPH('Impression line')]));
+                blank();
+                L.push(NL([NT('RECOMMENDATIONS as discussed with Dr. '), NPH('NAME')], H));
+                bulletLines(note.plan);
+                blank();
+                L.push(NTEXT(note.discharge && note.discharge.to === 'signoff' ? 'We will sign off.' : 'We will follow.'));
+            }
+            return L;
+        }
+
+        function noteLinesHtml(lines) {
+            return lines.map(l => {
+                const style = [
+                    'white-space: pre-wrap', 'min-height: 1.4em', 'tab-size: 12',
+                    l.b ? 'font-weight: 700' : '', l.u ? 'text-decoration: underline' : '', l.i ? 'font-style: italic' : '',
+                    l.center ? 'text-align: center' : ''
+                ].filter(Boolean).join('; ');
+                const inner = l.parts.length ? l.parts.map(pt => pt.ph
+                    ? `<span class="note-ph" data-orig="${esc(pt.t)}">${esc(pt.t)}</span>`
+                    : pt.b ? `<b>${esc(pt.t)}</b>` : esc(pt.t)).join('') : '<br>';
+                return `<div style="${style}">${inner}</div>`;
+            }).join('');
+        }
+
+        let noteExtractFor = null;
+        function openNoteExtract(patientId) {
+            const lines = buildNoteLines(patientId);
+            const p = Store.getPatients().find(x => x.id === patientId);
+            noteExtractFor = patientId;
+            document.getElementById('modal-container').innerHTML = `
+                <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
+                    <div class="bg-white rounded-3xl w-full max-w-3xl shadow-2xl flex flex-col" style="max-height: 92vh">
+                        <div class="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-100 flex-wrap">
+                            <div>
+                                <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-file-lines text-slate-500"></i> Note · ${esc(p ? p.name : '')}</h3>
+                                <p class="text-[11px] text-slate-400">Fill in the <span class="note-ph">green</span> fields: tap one, then <b>Tab</b> (or <b>Enter</b> on a phone / tablet) moves to the next. Once all are filled, Tab types a tab space and Enter starts a new line.</p>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <span id="note-status" class="text-[11px] font-bold px-2 py-1 rounded-lg"></span>
+                                <button onclick="copyExtractedNote()" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-semibold flex items-center gap-2"><i class="fa-solid fa-copy"></i> Copy</button>
+                                <button onclick="noteExtractFor = null; closeModal()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm">Close</button>
+                            </div>
+                        </div>
+                        <div id="note-extract" contenteditable="true" spellcheck="false" oninput="updateNoteFields()" class="note-doc flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-[14px] leading-relaxed text-slate-900 focus:outline-none">${noteLinesHtml(lines)}</div>
+                    </div>
+                </div>`;
+            updateNoteFields();
+            // Start on the first green field (on a keyboard device; phones would pop the keyboard up straight away)
+            if (window.matchMedia && window.matchMedia('(pointer: fine)').matches) goToNoteField(1, true);
+        }
+
+        /* Green fields: filled ones turn back to normal black text; the counter shows how many are left. */
+        function noteFieldFilled(ph) {
+            const t = ph.textContent.trim();
+            return !!t && t !== ph.getAttribute('data-orig');
+        }
+        function updateNoteFields() {
+            const box = document.getElementById('note-extract');
+            if (!box) return;
+            const all = [...box.querySelectorAll('.note-ph')];
+            all.forEach(ph => ph.classList.toggle('filled', noteFieldFilled(ph)));
+            const left = all.filter(ph => !noteFieldFilled(ph)).length;
+            const st = document.getElementById('note-status');
+            if (st) {
+                st.textContent = left ? `${left} field${left === 1 ? '' : 's'} left` : '✓ Note complete';
+                st.className = `text-[11px] font-bold px-2 py-1 rounded-lg ${left ? 'bg-green-100 text-green-800' : 'bg-slate-800 text-white'}`;
+            }
+        }
+        function selectNoteField(ph) {
+            const range = document.createRange();
+            range.selectNodeContents(ph);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+            ph.scrollIntoView({ block: 'nearest' });
+        }
+        // Moves to the next (dir 1) or previous (dir -1) green field from the cursor; wraps around.
+        function goToNoteField(dir, fromStart = false, unfilledOnly = false) {
+            const box = document.getElementById('note-extract');
+            if (!box) return;
+            const every = [...box.querySelectorAll('.note-ph')];
+            const all = unfilledOnly ? every.filter(ph => !noteFieldFilled(ph) || ph === noteFieldAtCaret()) : every;
+            if (!all.length) return;
+            const sel = window.getSelection();
+            let cur = -1;
+            if (!fromStart && sel.rangeCount && box.contains(sel.anchorNode)) {
+                const node = sel.anchorNode;
+                const inPh = (node.nodeType === 1 ? node : node.parentElement).closest('.note-ph');
+                if (inPh) cur = all.indexOf(inPh);
+                else {
+                    // cursor in normal text: the next field is the first one after it
+                    const r = sel.getRangeAt(0);
+                    const after = all.findIndex(ph => r.comparePoint(ph, 0) >= 0);
+                    cur = after === -1 ? all.length - 0.5 : after - 0.5;
+                }
+            }
+            let i = dir > 0 ? Math.floor(cur) + 1 : Math.ceil(cur) - 1;
+            if (fromStart) i = 0;
+            if (i >= all.length) i = 0;
+            if (i < 0) i = all.length - 1;
+            box.focus();
+            selectNoteField(all[i]);
+        }
+        // Tab (keyboards) or Enter (phones / tablets) jumps to the next green field while any are left.
+        // Once the note is complete both keys work normally again.
+        function isTouchDevice() {
+            try { return window.matchMedia('(pointer: coarse)').matches; } catch (e) { return false; }
+        }
+        function noteFieldsLeft() {
+            const box = document.getElementById('note-extract');
+            return box ? [...box.querySelectorAll('.note-ph')].filter(ph => !noteFieldFilled(ph)).length : 0;
+        }
+        function noteFieldAtCaret() {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return null;
+            const n = sel.anchorNode;
+            return n ? (n.nodeType === 1 ? n : n.parentElement).closest('#note-extract .note-ph') : null;
+        }
+        function caretAfter(node) {
+            const r = document.createRange();
+            if (node.classList && node.classList.contains('note-ph')) {
+                // Put the cursor inside plain text after the field, so what you type next isn't added to the field.
+                let nxt = node.nextSibling;
+                if (!nxt || nxt.nodeType !== 3) { nxt = document.createTextNode('\u200B'); node.after(nxt); }
+                r.setStart(nxt, nxt.data.startsWith('\u200B') ? 1 : 0);
+            } else {
+                r.setStartAfter(node);
+            }
+            r.collapse(true);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+        }
+        function noteJumpKey(e, isShiftTab) {
+            updateNoteFields();
+            if (noteFieldsLeft() > 0) {
+                e.preventDefault();
+                goToNoteField(isShiftTab ? -1 : 1, false, !isShiftTab);
+                return;
+            }
+            // Just finished the last field: step out of it once; after that the key works normally.
+            const ph = noteFieldAtCaret();
+            if (ph) { e.preventDefault(); caretAfter(ph); }
+        }
+        document.addEventListener('keydown', (e) => {
+            if (!e.target.closest || !e.target.closest('#note-extract')) return;
+            if (e.key === 'Tab') {
+                updateNoteFields();
+                if (noteFieldsLeft() > 0) { noteJumpKey(e, e.shiftKey); return; }
+                // Note complete: Tab types a tab space in the text (the Tab that finishes the last field just steps out of it).
+                e.preventDefault();
+                const ph = noteFieldAtCaret();
+                if (ph) { caretAfter(ph); return; }
+                const sel = window.getSelection();
+                if (!sel.rangeCount) return;
+                const r = sel.getRangeAt(0);
+                r.deleteContents();
+                const t = document.createTextNode('\t');
+                r.insertNode(t);
+                caretAfter(t);
+            }
+            else if (e.key === 'Enter' && !e.shiftKey && isTouchDevice()) noteJumpKey(e, false);
+        });
+        // Some phone keyboards don't send a usable Enter key event; catch the new line instead.
+        document.addEventListener('beforeinput', (e) => {
+            if (e.inputType !== 'insertParagraph' && e.inputType !== 'insertLineBreak') return;
+            if (!e.target.closest || !e.target.closest('#note-extract') || !isTouchDevice()) return;
+            noteJumpKey(e, false);
+        });
+        // Tapping a green field that still shows its label selects it, so typing replaces it.
+        document.addEventListener('click', (e) => {
+            const ph = e.target.closest && e.target.closest('#note-extract .note-ph');
+            if (!ph || ph.textContent !== ph.getAttribute('data-orig')) return;
+            const range = document.createRange();
+            range.selectNodeContents(ph);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        });
+
+        async function copyExtractedNote() {
+            const box = document.getElementById('note-extract');
+            if (!box) return;
+            const unfilled = [...box.querySelectorAll('.note-ph')].filter(x => !noteFieldFilled(x)).length;
+            // Copy without the green highlighting.
+            const clone = box.cloneNode(true);
+            clone.querySelectorAll('.note-ph').forEach(x => x.replaceWith(document.createTextNode(x.textContent)));
+            const html = `<div style="font-family: Calibri, Arial, sans-serif; font-size: 11pt">${clone.innerHTML.replace(/\u200B/g, '')}</div>`;
+            const text = [...clone.children].map(d => d.textContent).join('\n').replace(/\u200B/g, '');
+            let ok = false;
+            try {
+                if (navigator.clipboard && window.ClipboardItem) {
+                    await navigator.clipboard.write([new ClipboardItem({
+                        'text/html': new Blob([html], { type: 'text/html' }),
+                        'text/plain': new Blob([text], { type: 'text/plain' })
+                    })]);
+                    ok = true;
+                }
+            } catch (e) {}
+            if (!ok) {
+                try {
+                    // Fallback: copy from a hidden copy of the note (keeps bold / underline where supported).
+                    const tmp = document.createElement('div');
+                    tmp.innerHTML = html;
+                    tmp.style.cssText = 'position: fixed; left: -9999px; top: 0;';
+                    document.body.appendChild(tmp);
+                    const range = document.createRange();
+                    range.selectNodeContents(tmp);
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(range);
+                    ok = document.execCommand('copy');
+                    sel.removeAllRanges();
+                    tmp.remove();
+                } catch (e) {}
+            }
+            if (!ok) { showToast('Copy was blocked: select the text and copy it manually.'); return; }
+            showToast(unfilled ? `Copied · ${unfilled} green field${unfilled === 1 ? '' : 's'} not filled in` : 'Note copied');
+        }
+
+        /* ----- Discharge -----
+           Saved on the entry as note.discharge = { to: 'home'|'expired', prevGoc, removedTomorrow: {date, listKey} | null,
+           skipTomorrow, postDc: { date, id } | null }, so every step can be undone. */
+        let dcDraft = null;
+        function openDischargeModal(patientId, signOff = false) {
+            dcDraft = { patientId, to: signOff ? 'signoff' : '', signOff, removeTomorrow: true, addPostDc: false };
+            renderDischargeModal();
+        }
+        function renderDischargeModal() {
+            const d = dcDraft;
+            if (!d) return;
+            const p = Store.getPatients().find(x => x.id === d.patientId);
+            const choice = (field, val, label, on) => `<button onclick="dcDraft.${field} = ${JSON.stringify(val).replace(/"/g, "'")}; renderDischargeModal()" class="flex-1 px-3 py-2 rounded-xl text-sm font-bold border-2 transition ${d[field] === val ? on : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}">${label}</button>`;
+            const typed = (document.getElementById('dc-postdc-text') || {}).value;
+            if (typed !== undefined) d.text = typed;
+            document.getElementById('modal-container').innerHTML = `
+                <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50" onclick="if (event.target === this) { dcDraft = null; closeModal(); }">
+                    <div class="bg-white rounded-3xl p-5 max-w-sm w-full shadow-2xl space-y-4 border-t-4 border-green-700">
+                        <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid ${d.signOff ? 'fa-hand-point-right' : 'fa-door-open'} text-green-700"></i> ${d.signOff ? 'Sign off' : 'Discharge'} ${esc(p ? p.name : '')}</h3>
+                        <div class="${d.signOff ? 'hidden' : ''}">
+                            <span class="block text-xs font-semibold text-slate-500 mb-1.5">Discharged to</span>
+                            <div class="flex gap-2">
+                                ${choice('to', 'home', '<i class="fa-solid fa-house"></i> Home', 'bg-green-700 text-white border-green-700')}
+                                ${choice('to', 'expired', '<i class="fa-solid fa-heart-crack"></i> Expired', 'bg-red-800 text-white border-red-800')}
+                            </div>
+                            ${d.to === 'expired' ? '<p class="text-[11px] text-slate-400 mt-1">Goals of care will be set to Expired.</p>' : ''}
+                        </div>
+                        <div>
+                            <span class="block text-xs font-semibold text-slate-500 mb-1.5">Remove from tomorrow's list?</span>
+                            <div class="flex gap-2">${choice('removeTomorrow', true, 'Yes', 'bg-slate-700 text-white border-slate-700')}${choice('removeTomorrow', false, 'No', 'bg-slate-700 text-white border-slate-700')}</div>
+                        </div>
+                        <div>
+                            <span class="block text-xs font-semibold text-slate-500 mb-1.5">Add a Post D/C follow-up?</span>
+                            <div class="flex gap-2">${choice('addPostDc', true, 'Yes', 'bg-slate-700 text-white border-slate-700')}${choice('addPostDc', false, 'No', 'bg-slate-700 text-white border-slate-700')}</div>
+                            ${d.addPostDc ? `<input id="dc-postdc-text" type="text" value="${esc(d.text || '')}" class="mt-2 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="e.g. Follow culture result, OPD in 2 weeks">` : ''}
+                        </div>
+                        <div class="flex justify-end gap-2 pt-1">
+                            <button onclick="dcDraft = null; closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
+                            <button onclick="confirmDischarge()" class="px-4 py-2 bg-green-800 hover:bg-green-900 text-white rounded-xl text-sm font-semibold ${d.to ? '' : 'opacity-40 pointer-events-none'}">${d.signOff ? 'Sign off' : 'Discharge'}</button>
+                        </div>
+                    </div>
+                </div>`;
+            const el = document.getElementById('dc-postdc-text');
+            if (el && d.addPostDc && !d.text) el.focus();
+        }
+        function confirmDischarge() {
+            const d = dcDraft;
+            if (!d || !d.to) return;
+            const text = ((document.getElementById('dc-postdc-text') || {}).value || d.text || '').trim();
+            if (d.addPostDc && !text) { showToast('Type the follow-up, or choose No'); return; }
+            const type = currentEntryType;
+            const key = curKey();
+            const allPatients = Store.getPatients();
+            const p = allPatients.find(x => x.id === d.patientId);
+            const note = dayNoteFor(allPatients, d.patientId);
+            const info = infoFor(allPatients, d.patientId);
+            const rec = { to: d.to, at: Date.now(), prevGoc: null, skipTomorrow: !!d.removeTomorrow, removedTomorrow: null, postDc: null };
+            if (d.to === 'expired') {
+                const goc = (Store.getSettings().goalsOfCare.find(g => g.name.toLowerCase() === 'expired') || { name: 'Expired' }).name;
+                rec.prevGoc = info.goalsOfCare || '';
+                info.goalsOfCare = goc;
+            }
+            const records = Store.getDailyRecords();
+            const listKey = type === 'consult' ? 'consultIds' : 'inpatientIds';
+            if (d.removeTomorrow) {
+                const tomorrow = addDays(currentViewDate, 1);
+                const day = records[tomorrow];
+                if (day && (day[listKey] || []).includes(d.patientId)) {
+                    day[listKey] = day[listKey].filter(id => id !== d.patientId);
+                    rec.removedTomorrow = { date: tomorrow, listKey }; // that entry's notes are kept, so undo brings them back
+                }
+            }
+            if (d.addPostDc) {
+                const day = getOrCreateDay(records, currentViewDate);
+                const id = 'pdc_' + Date.now().toString(36);
+                day.postDc.push({ id, text: `${p.name}: ${text}`, completed: false, patientId: p.id });
+                rec.postDc = { date: currentViewDate, id };
+            }
+            note.discharge = rec;
+            Store.saveDailyRecords(records);
+            Store.savePatients(allPatients);
+            dcDraft = null;
+            closeModal();
+            renderApp();
+            showToast(d.to === 'signoff' ? 'Signed off' : d.to === 'expired' ? 'Marked as expired' : 'Discharged home');
+        }
+        function reverseDischarge(patientId) {
+            const cur = getDayNote(Store.getPatients().find(x => x.id === patientId) || {}, curKey());
+            const isSign = !!(cur && cur.discharge && cur.discharge.to === 'signoff');
+            showConfirm({
+                title: isSign ? 'Reverse sign-off?' : 'Reverse discharge?',
+                messageHtml: isSign ? 'Tomorrow\'s list and the Post D/C follow-up go back to how they were.' : 'Goals of care, tomorrow\'s list and the Post D/C follow-up go back to how they were.',
+                confirmLabel: 'Reverse',
+                onConfirm: () => {
+                    const allPatients = Store.getPatients();
+                    const note = dayNoteFor(allPatients, patientId);
+                    const rec = note && note.discharge;
+                    if (!rec) return;
+                    const info = infoFor(allPatients, patientId);
+                    if (rec.to === 'expired' && rec.prevGoc !== null) info.goalsOfCare = rec.prevGoc;
+                    const records = Store.getDailyRecords();
+                    if (rec.removedTomorrow) {
+                        const day = getOrCreateDay(records, rec.removedTomorrow.date);
+                        const lk = rec.removedTomorrow.listKey;
+                        if (!day[lk].includes(patientId)) day[lk].push(patientId);
+                    }
+                    if (rec.postDc && records[rec.postDc.date]) {
+                        records[rec.postDc.date].postDc = (records[rec.postDc.date].postDc || []).filter(x => x.id !== rec.postDc.id);
+                    }
+                    delete note.discharge;
+                    Store.saveDailyRecords(records);
+                    Store.savePatients(allPatients);
+                    renderApp();
+                    showToast(isSign ? 'Sign-off reversed' : 'Discharge reversed');
+                }
+            });
         }
 
         /* =========================================================
@@ -2702,6 +3360,7 @@
             teal:   { border: '#99f6e4', head: '#f0fdfa', text: '#115e59', icon: '#0d9488', col: '#f0fdfa', input: '#5eead4' }, // cultures
             sky:    { border: '#bae6fd', head: '#f0f9ff', text: '#075985', icon: '#0284c7', col: '#f0f9ff', input: '#7dd3fc' }, // PCR
             amber:  { border: '#fcd34d', head: '#fffbeb', text: '#92400e', icon: '#d97706', col: '#fffbeb', input: '#fcd34d' }, // urinalysis
+            honey:  { border: '#f6c177', head: '#fff8eb', text: '#8a4b08', icon: '#c2771a', col: '#fff8eb', input: '#f6c177' }, // urine lytes
             fuchsia: { border: '#f0abfc', head: '#fdf4ff', text: '#86198f', icon: '#c026d3', col: '#fdf4ff', input: '#f0abfc' } // endocrine
         };
 
@@ -2745,6 +3404,8 @@
             'bone.mg':     [{ u: 'mg/dL', lo: 1.5, hi: 2.4 }, { u: 'mmol/L', lo: 0.62, hi: 0.99 }],
             'bone.vitd':   [{ u: 'ng/mL', lo: 31, hi: 80 }, { u: 'nmol/L', lo: 77, hi: 200 }],
             'bone.alp':    [{ u: 'U/L', lo: 36, hi: 92 }],
+            'bone.pth':    [{ u: 'pg/mL', lo: 10, hi: 65 }, { u: 'pmol/L', lo: 1.1, hi: 6.9 }],
+            'bone.pthrp':  [{ u: 'pmol/L', lo: null, hi: 2 }],
             'liver.ast':   [{ u: 'U/L', lo: 0, hi: 35 }],
             'liver.alt':   [{ u: 'U/L', lo: 0, hi: 35 }],
             'liver.ggt':   [{ u: 'U/L', lo: 0, hi: 30 }],
@@ -2766,7 +3427,7 @@
 
         function labSettings() {
             const s = Store.get('lab_settings', {});
-            return { units: s.units || {}, overrides: s.overrides || {}, useRanges: s.useRanges !== false };
+            return { units: s.units || DEFAULT_LAB_UNITS, overrides: s.overrides || {}, useRanges: s.useRanges !== false };
         }
         function labUnitIndex(key) {
             const refs = LAB_REF[key] || [];
@@ -2814,26 +3475,27 @@
 
         const INV_TYPES = {
             vitals:   { title: 'Vitals', icon: 'fa-heart-pulse', theme: 'indigo', rows: [['sbp', 'SBP', 'mmHg'], ['dbp', 'DBP', 'mmHg'], ['map', 'MAP', 'mmHg', 'map'], ['hr', 'HR', 'bpm'], ['rr', 'RR', '/min'], ['temp', 'Temp', '°C'], ['spo2', 'SpO2', '%'], ['fio2', 'Supp O2', '', null, 'text']] },
-            io:       { title: 'Intake & Output', icon: 'fa-droplet', theme: 'yellow', rows: [['in', 'Intake', 'mL'], ['out', 'Output', 'mL'], ['bal', 'Balance', 'mL', 'bal']] },
+            io:       { title: 'I/O', icon: 'fa-droplet', theme: 'yellow', rows: [['in', 'Intake', 'mL'], ['out', 'Output', 'mL'], ['bal', 'Balance', 'mL', 'bal']] },
             lytes:    { title: 'Lytes & Renal', icon: 'fa-vial', theme: 'orange', rows: [['na', 'Na'], ['k', 'K'], ['cr', 'Cr'], ['bun', 'BUN'], ['hco3', 'HCO3'], ['alb', 'Albumin']] },
             glucose:  { title: 'Glucose', icon: 'fa-cubes-stacked', theme: 'lime', rows: [['fasting', 'Fasting'], ['g1', '#1'], ['g2', '#2'], ['g3', '#3']] },
             cbc:      { title: 'CBC', icon: 'fa-droplet', theme: 'maroon', rows: [['hgb', 'Hgb'], ['wbc', 'WBC'], ['plt', 'Plt'], ['neut', 'Neuts'], ['lymph', 'Lymphs'], ['eos', 'Eos']] },
-            gas:      { title: 'Blood Gas', icon: 'fa-lungs', theme: 'cyan', rows: [['ph', 'pH'], ['pco2', 'pCO2'], ['po2', 'pO2'], ['hco3', 'HCO3']] },
+            gas:      { title: 'Blood Gas', icon: 'fa-lungs', theme: 'cyan', rows: [['po2', 'pO2'], ['ph', 'pH'], ['pco2', 'pCO2'], ['hco3', 'HCO3']] },
             coag:     { title: 'Coagulation', icon: 'fa-hourglass-half', theme: 'maroon', rows: [['pt', 'PT'], ['ptt', 'PTT'], ['inr', 'INR']] },
             critical: { title: 'Cardiac/Critical', icon: 'fa-triangle-exclamation', theme: 'red', rows: [['lactate', 'Lactic'], ['tropi', 'Trop I'], ['bnp', 'BNP']] },
             inflammation: { title: 'Inflammation', icon: 'fa-fire', theme: 'flame', rows: [['crp', 'CRP'], ['procal', 'Procal']] },
             cultures: { title: 'Cultures', icon: 'fa-bacteria', theme: 'teal' },
             pcr:      { title: 'PCR', icon: 'fa-dna', theme: 'sky' },
             ua:       { title: 'Urinalysis', icon: 'fa-flask-vial', theme: 'amber' },
+            ulytes:   { title: 'Urine Lytes', icon: 'fa-flask-vial', theme: 'honey', rows: [['na', 'Na'], ['cl', 'Cl'], ['k', 'K'], ['ca', 'Ca'], ['cr', 'Cr'], ['urea', 'Urea'], ['uric', 'Uric']] },
             endocrine: { title: 'Endocrine', icon: 'fa-syringe', theme: 'fuchsia', rows: [['a1c', 'A1c'], ['tsh', 'TSH'], ['ft4', 'Free T4'], ['cortisol', 'Cortisol']] },
-            bone:     { title: 'Bone Panel', icon: 'fa-bone', theme: 'beige', rows: [['ca', 'Ca'], ['phos', 'Phos'], ['mg', 'Mg'], ['vitd', 'Vit D'], ['alp', 'ALP']] },
+            bone:     { title: 'Bone Panel', icon: 'fa-bone', theme: 'beige', rows: [['ca', 'Ca'], ['phos', 'Phos'], ['mg', 'Mg'], ['vitd', 'Vit D'], ['alp', 'ALP'], ['pth', 'PTH'], ['pthrp', 'PTHrP']] },
             liver:    { title: 'Gastro', icon: 'fa-flask', theme: 'purple', rows: [['ast', 'AST'], ['alt', 'ALT'], ['alp', 'ALP'], ['ggt', 'GGT'], ['bili', 'Bili T'], ['bilid', 'Bili D'], ['amylase', 'Amylase'], ['lipase', 'Lipase']] },
             iron:     { title: 'Iron Studies', icon: 'fa-magnet', theme: 'mauve', rows: [['fe', 'Fe'], ['ferritin', 'Ferritin'], ['tibc', 'TIBC'], ['tsat', 'T Sat', '%']] },
             labs:     { title: 'Other Labs', icon: 'fa-vials', theme: 'gray', custom: true },
             text:     { title: 'Free Text', icon: 'fa-align-left', theme: 'gray' },
             image:    { title: 'Image', icon: 'fa-image', theme: 'gray' }
         };
-        const INV_ORDER = ['vitals', 'io', 'lytes', 'glucose', 'cbc', 'gas', 'coag', 'critical', 'inflammation', 'cultures', 'pcr', 'ua', 'bone', 'liver', 'iron', 'endocrine', 'labs', 'text', 'image'];
+        const INV_ORDER = ['vitals', 'io', 'lytes', 'glucose', 'cbc', 'gas', 'coag', 'critical', 'inflammation', 'cultures', 'pcr', 'ua', 'bone', 'liver', 'iron', 'endocrine', 'ulytes', 'labs', 'text', 'image'];
         const TREND_DAYS = 5;
         let invBoxCollapsed = false;
 
@@ -2842,7 +3504,7 @@
            and new sets can be made. A card keeps its own copy of the rows it was added with,
            so edits only change cards added afterwards. Saved in "lab_settings": sets (edited built-in
            sets) and customSets ([{ id, title, rows }]). A row is { k, label, unit, lo, hi, own, calc, kind }. */
-        const TABLE_TYPES = ['vitals', 'io', 'lytes', 'glucose', 'cbc', 'gas', 'coag', 'critical', 'inflammation', 'bone', 'liver', 'iron', 'endocrine'];
+        const TABLE_TYPES = ['vitals', 'io', 'lytes', 'glucose', 'cbc', 'gas', 'coag', 'critical', 'inflammation', 'bone', 'liver', 'iron', 'endocrine', 'ulytes'];
         function defaultSetRows(type) {
             return ((INV_TYPES[type] || {}).rows || []).map(([k, label, unit, calc, kind]) => {
                 const r = { k, label, unit: unit || '' };
@@ -2860,7 +3522,7 @@
         }
         // The rows a card shows: its own saved copy, or (cards from before sets could be edited) the original set.
         // Cards added before a built-in set was extended keep the rows they had then.
-        const LEGACY_ROWS = { liver: [['ast', 'AST'], ['alt', 'ALT'], ['ggt', 'GGT'], ['bili', 'Bili T']] };
+        const LEGACY_ROWS = { liver: [['ast', 'AST'], ['alt', 'ALT'], ['ggt', 'GGT'], ['bili', 'Bili T']], bone: [['ca', 'Ca'], ['phos', 'Phos'], ['mg', 'Mg'], ['vitd', 'Vit D'], ['alp', 'ALP']] };
         function panelSetRows(panel) {
             if (Array.isArray(panel.set)) return panel.set;
             if (panel.type === 'custom') { const cs = customSet(panel.setId); return cs ? cs.rows : []; }
@@ -2893,6 +3555,7 @@
             'bone.vitd': ['vitamin d', 'vit d', '25ohd', '25 oh d'], 'bone.alp': ['alkaline phosphatase', 'alk phos'],
             'liver.bili': ['bilirubin', 'tbili', 'tbil', 'total bilirubin', 'bili'], 'iron.fe': ['iron', 'serum iron'],
             'iron.tsat': ['tsat', 'transferrin saturation'], 'iron.ferritin': ['ferritin'],
+            'bone.pth': ['parathyroid hormone', 'ipth', 'intact pth'], 'bone.pthrp': ['pthrp', 'pth rp', 'pth related peptide'],
             'endocrine.a1c': ['hba1c', 'a1c', 'glycated hemoglobin'], 'endocrine.ft4': ['ft4', 'free t4', 'free thyroxine'], 'endocrine.cortisol': ['cortisol', 'am cortisol']
         };
         function normLab(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -2920,7 +3583,7 @@
         function labKey(type, rowKey) { return `${type}.${rowKey}`; }
         function customLabKey(name) { return 'labs.' + String(name || '').trim().toLowerCase(); }
         function labValue(p, date, key) { return ((p.labs || {})[date] || {})[key]; }
-        function fmtMD(dateStr) { const m = String(dateStr).match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${m[1]}/${m[2]}` : dateStr; }
+        function fmtMD(dateStr) { const m = String(dateStr).match(/^\d{4}-(\d{2})-(\d{2})/); return m ? `${m[2]}/${m[1]}` : dateStr; } // DD/MM
 
         function num(v) {
             const n = parseFloat(String(v ?? '').replace(',', '.'));
@@ -3008,6 +3671,7 @@
 
         function toggleInvBox() {
             invBoxCollapsed = !invBoxCollapsed;
+            noteViewChoice('inv', !invBoxCollapsed);
             renderApp();
         }
         function toggleInvPanel(patientId, panelId) {
@@ -3015,6 +3679,7 @@
             const { panel } = findPanel(allPatients, patientId, panelId);
             if (!panel) return;
             panel.collapsed = !panel.collapsed;
+            noteViewChoice('card:' + panelId, !panel.collapsed);
             Store.savePatients(allPatients);
             renderApp();
         }
@@ -3093,7 +3758,12 @@
                 board.querySelectorAll(':scope > .inv-card').forEach(card => {
                     const span = Math.min(+card.dataset.span || 1, n);
                     const col = Math.min(+card.dataset.col || 0, n - span);
-                    card.style.width = (colW * span + INV_GAP * (span - 1)) + 'px';
+                    const w = (colW * span + INV_GAP * (span - 1)) + 'px';
+                    if (card.style.width !== w) {
+                        card.style.width = w;
+                        // text boxes were sized before the card got its width: size them again
+                        card.querySelectorAll('textarea.cult-input, textarea.auto-grow').forEach(fitTextarea);
+                    }
                     card.style.left = (col * (colW + INV_GAP)) + 'px';
                     const top = Math.max(...heights.slice(col, col + span));
                     card.style.top = top + 'px';
@@ -3103,10 +3773,27 @@
                 board.style.height = Math.max(0, Math.max(...heights) - INV_GAP) + 'px';
             });
         }
+        // Re-arrange the board whenever a card changes height after drawing (fonts / icons loading,
+        // a box growing while you type, a photo loading...), so cards never overlap.
+        let invResizeObs = null, invRelayoutQueued = false;
+        function watchInvCards() {
+            if (!window.ResizeObserver) return;
+            if (!invResizeObs) {
+                invResizeObs = new ResizeObserver(() => {
+                    if (invRelayoutQueued || dragState) return;
+                    invRelayoutQueued = true;
+                    requestAnimationFrame(() => { invRelayoutQueued = false; layoutInvestigations(); });
+                });
+            }
+            invResizeObs.disconnect();
+            document.querySelectorAll('.inv-board > .inv-card').forEach(c => invResizeObs.observe(c));
+        }
+        try { document.fonts && document.fonts.ready.then(() => layoutInvestigations()); } catch (e) {}
+
         function setAllInvCollapsed(patientId, collapse) {
             const allPatients = Store.getPatients();
             const note = dayNoteFor(allPatients, patientId);
-            (note.investigations || []).forEach(x => { x.collapsed = collapse; });
+            (note.investigations || []).forEach(x => { x.collapsed = collapse; noteViewChoice('card:' + x.id, !collapse); });
             Store.savePatients(allPatients);
             renderApp();
         }
@@ -3159,6 +3846,7 @@
                     <div class="flex items-center gap-2 min-w-0 flex-1 font-bold text-sm" style="color: ${th.text}">
                         ${chevron}<i class="fa-solid ${def.icon}" style="color: ${th.icon}"></i>${titleHtml}
                     </div>
+                    ${panel.type === 'ulytes' ? `<div class="flex gap-1 shrink-0">${[['spot', 'Spot'], ['24h', '24 hr']].map(([v, l]) => `<button onclick="setUlytesMode(${pid}, ${panelId}, '${v}')" class="px-2 py-0.5 rounded-md text-[11px] font-bold border transition" style="${(panel.mode || 'spot') === v ? `background-color: ${th.icon}; border-color: ${th.icon}; color: #fff` : `background-color: #fff; border-color: ${th.border}; color: ${th.text}`}">${l}</button>`).join('')}</div>` : ''}
                     ${panel.type === 'text' && invColumnCount() > 1 ? `<button onclick="toggleInvSpan(${pid}, ${panelId})" class="text-slate-400 hover:text-slate-700 px-1 shrink-0 text-[11px] font-bold" title="${invPanelSpan(panel) === 2 ? 'Make 1 column wide' : 'Make 2 columns wide'}"><i class="fa-solid fa-${invPanelSpan(panel) === 2 ? 'compress' : 'arrows-left-right'}"></i></button>` : ''}
                     <button onclick="removeInvPanel(${pid}, ${panelId})" class="text-slate-400 hover:text-rose-600 px-1.5 shrink-0" title="Remove from this day"><i class="fa-solid fa-xmark"></i></button>
                 </div>`;
@@ -3291,7 +3979,7 @@
                 `);
             }
 
-            // Trend table: rows = parameters, columns = this day then the 4 days before it (MM/DD).
+            // Trend table: rows = parameters, columns = this day then the 4 days before it (DD/MM).
             const dates = Array.from({ length: TREND_DAYS }, (_, i) => addDays(currentViewDate, -i));
             const keys = dates.map(d => entryKey(d, currentEntryType));
             const sex = p.gender;
@@ -3304,7 +3992,8 @@
                 })
                 : panelSetRows(panel).map(r => {
                     const range = setRowRange(panel.type, r, sex);
-                    return { key: panel.type === 'custom' ? `${panel.setId}.${r.k}` : labKey(panel.type, r.k), label: r.label, unit: r.unit && !(range && range.u) ? r.unit : '', range, calc: r.calc || null, kind: r.kind || '' };
+                    const valueType = panel.type === 'ulytes' && panel.mode === '24h' ? 'ulytes24' : panel.type; // Spot and 24 hr trends kept apart
+                    return { key: panel.type === 'custom' ? `${panel.setId}.${r.k}` : labKey(valueType, r.k), k: r.k, label: r.label, unit: r.unit && !(range && range.u) ? r.unit : '', range, calc: r.calc || null, kind: r.kind || '' };
                 });
             return wrap(`
                 ${header(esc(def.title))}
@@ -3318,15 +4007,20 @@
                                 </tr>
                             </thead>
                             <tbody>
-                                ${rows.map(({ key, label, unit, calc, isCustom, kind, range, from }) => {
+                                ${rows.map(({ key, k, label, unit, calc, isCustom, kind, range, from }) => {
                                     const rt = range ? rangeText(range) : '';
                                     const rangeAttr = range ? `data-range="${esc(JSON.stringify({ lo: range.lo, hi: range.hi }))}"` : '';
                                     return `
                                     <tr class="border-t border-slate-100">
-                                        <td class="px-2 py-1 font-semibold text-slate-700 whitespace-nowrap sticky left-0 bg-white" ${from ? `title="Format from ${esc(from)}"` : ''}>
-                                            ${esc(label)}${unit ? ` <span class="font-normal text-[10px] text-slate-400">${esc(unit)}</span>` : ''}
-                                            ${rt ? `<div class="font-normal text-[9px] leading-none text-slate-400/80">${esc(rt)}</div>` : ''}
-                                            ${isCustom ? `<button onclick="removeCustomLabRow(${pid}, ${panelId}, ${jsArg(label)})" class="ml-0.5 text-slate-300 hover:text-rose-500" title="Remove row"><i class="fa-solid fa-xmark text-[10px]"></i></button>` : ''}
+                                        <td class="pl-1 pr-2 py-1 font-semibold text-slate-700 whitespace-nowrap sticky left-0 bg-white" ${from ? `title="Format from ${esc(from)}"` : ''}>
+                                            <div class="flex items-start gap-1">
+                                                ${isCustom ? `<button onclick="removeCustomLabRow(${pid}, ${panelId}, ${jsArg(label)})" class="shrink-0 w-3.5 leading-none pt-[3px] text-slate-300 hover:text-rose-500" title="Remove row"><i class="fa-solid fa-xmark text-[10px]"></i></button>`
+                                                    : `<button onclick="removeCardComponent(${pid}, ${panelId}, ${jsArg(k)})" class="shrink-0 w-3.5 leading-none pt-[3px] text-slate-300 hover:text-rose-500" title="Remove from this card (this patient only)"><i class="fa-solid fa-xmark text-[10px]"></i></button>`}
+                                                <div class="min-w-0">
+                                                    <div>${esc(label)}${unit ? ` <span class="font-normal text-[10px] text-slate-400">${esc(unit)}</span>` : ''}</div>
+                                                    ${rt ? `<div class="lab-range font-normal leading-none text-slate-400">${esc(rt)}</div>` : ''}
+                                                </div>
+                                            </div>
                                         </td>
                                         ${dates.map((d, i) => {
                                             const colStyle = i === 0 ? `style="background-color: ${th.col}"` : '';
@@ -3430,7 +4124,7 @@
             [/swab/i,                                                        { bg: '#ffe2c6', border: '#fb923c', fg: '#9a3412' }], // orange (Inflammation)
             [/blood|h(a)?emocult/i,                                          { bg: '#f7d9dd', border: '#d98f98', fg: '#7f1d1d' }], // red (CBC)
             [/resp|sputum|\bbal\b|\beta\b|trache|bronch|nasopharyn|\bnps\b/i, { bg: '#dbeafe', border: '#93c5fd', fg: '#1e40af' }], // blue (Blood Gas)
-            [/urin|\bmsu\b|\bcsu\b/i,                                        { bg: '#fef3a0', border: '#facc15', fg: '#854d0e' }], // yellow (Intake & Output)
+            [/urin|\bmsu\b|\bcsu\b/i,                                        { bg: '#fef3a0', border: '#facc15', fg: '#854d0e' }], // yellow (I/O)
             [/\bcsf\b|cerebrospinal/i,                                       { bg: '#b9f3fb', border: '#22d3ee', fg: '#0e7490' }], // cyan
             [/synov|joint/i,                                                 { bg: '#ece8e2', border: '#cbc2b4', fg: '#57534e' }], // light gray (Bone)
             [/tissue|biops/i,                                                { bg: '#fce1ef', border: '#f472b6', fg: '#9d174d' }], // pink
@@ -3448,11 +4142,14 @@
         }
         function paintSource(el, fallbackBorder) { el.setAttribute('style', sourceStyle(el.value, fallbackBorder)); }
 
-        function autoGrow(el) {
+        function fitTextarea(el) {
             if (!el.offsetParent && el.offsetHeight === 0) return; // hidden (collapsed) - sized when shown
             el.style.height = 'auto';
             // scrollHeight leaves out the border, so add it back - otherwise a scroll bar appears.
             el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px';
+        }
+        function autoGrow(el) {
+            fitTextarea(el);
             if (el.closest && el.closest('.inv-board')) layoutInvestigations();
         }
         function updateRecField(patientId, type, rowId, field, value, rerender = false) {
@@ -3549,12 +4246,24 @@
             let panel = single ? note.investigations.find(x => x.type === type && (type !== 'custom' || x.setId === setId)) : null;
             if (panel) {
                 closeModal();
-                showToast(`${cs ? cs.title : INV_TYPES[type].title} is already on this day.`);
+                const full = cs ? (cs.rows || []) : (TABLE_TYPES.includes(type) ? currentSetRows(type) : null);
+                const missing = full && full.some(r => !panelSetRows(panel).some(x => x.k === r.k));
+                if (missing) {
+                    panel.set = restoredSetRows(panel, full);
+                    panel.collapsed = false;
+                    Store.savePatients(allPatients);
+                    invBoxCollapsed = false;
+                    renderApp();
+                    showToast(`${cs ? cs.title : INV_TYPES[type].title}: removed components restored.`);
+                } else {
+                    showToast(`${cs ? cs.title : INV_TYPES[type].title} is already on this day.`);
+                }
                 return panel;
             }
             panel = { id: invId(), type };
             // The card keeps the set's rows as they are now; later edits to the set won't change it.
             if (TABLE_TYPES.includes(type)) panel.set = currentSetRows(type);
+            if (type === 'ulytes') panel.mode = 'spot';
             if (cs) { panel.setId = cs.id; panel.title = cs.title; panel.set = clone(cs.rows || []); }
             const counts = [0, 0, 0];
             note.investigations.forEach((x, i) => { const c = (x.col ?? i % 3); counts[c] += 1; if (invPanelSpan(x) === 2 && c < 2) counts[c + 1] += 1; });
@@ -3598,6 +4307,34 @@
             } else {
                 doRemove(); // tables only leave this day's view; recorded values stay for trends
             }
+        }
+
+        // Urine Lytes: Spot or 24 hr (each keeps its own values and trend).
+        function setUlytesMode(patientId, panelId, mode) {
+            const allPatients = Store.getPatients();
+            const { panel } = findPanel(allPatients, patientId, panelId);
+            if (!panel) return;
+            panel.mode = mode;
+            Store.savePatients(allPatients);
+            renderApp();
+        }
+
+        // Removes a component from this card only (this patient's entry). Values already recorded are kept,
+        // and adding the same card again brings the component back.
+        function removeCardComponent(patientId, panelId, k) {
+            const allPatients = Store.getPatients();
+            const { panel } = findPanel(allPatients, patientId, panelId);
+            if (!panel) return;
+            panel.set = clone(panelSetRows(panel)).filter(r => r.k !== k);
+            Store.savePatients(allPatients);
+            renderApp();
+        }
+        // The card's rows with any removed components put back, in the set's order (extra rows kept at the end).
+        function restoredSetRows(panel, fullRows) {
+            const have = panelSetRows(panel);
+            const merged = fullRows.map(r => have.find(x => x.k === r.k) || clone(r));
+            have.forEach(r => { if (!merged.some(x => x.k === r.k)) merged.push(r); });
+            return merged;
         }
 
         function addCustomLabRow(patientId, panelId, name, value) {
@@ -3803,6 +4540,7 @@
         let memoCollapsed = {}; // { summary, daily, emr } — remembered while the app is open
         function toggleMemoCollapse(kind) {
             memoCollapsed[kind] = !memoCollapsed[kind];
+            noteViewChoice('memo:' + kind, !memoCollapsed[kind]);
             renderApp();
         }
 
@@ -4139,17 +4877,23 @@
         // name ('cbc') and your sets as 'cs:<id>'. Saved in lab_settings.order; new ones go at the end.
         // Sections the cards are grouped in (Settings and the Add window). Cards can be dragged between them.
         // Saved in lab_settings.layout = { daily: [...], acute: [...], ... }.
-        const SET_SECTIONS = [['daily', 'Daily'], ['acute', 'Acute'], ['infections', 'Infections'], ['others', 'Others'], ['mine', 'My sets']];
-        const DEFAULT_SECTION = {
-            vitals: 'daily', io: 'daily', lytes: 'daily', glucose: 'daily', cbc: 'daily',
-            gas: 'acute', coag: 'acute', critical: 'acute',
-            inflammation: 'infections', cultures: 'infections', pcr: 'infections', ua: 'infections',
-            bone: 'others', liver: 'others', iron: 'others', endocrine: 'others', labs: 'others', text: 'others', image: 'others'
+        const SET_SECTIONS = [['daily', 'Daily'], ['acute', 'Acute'], ['infections', 'Infections'], ['others', 'Others'], ['misc', 'Miscellaneous'], ['mine', 'My sets']];
+        const DEFAULT_LAYOUT = {
+            daily: ['vitals', 'io', 'cbc', 'lytes', 'glucose'],
+            acute: ['critical', 'gas', 'coag'],
+            infections: ['inflammation', 'cultures', 'ua', 'pcr'],
+            others: ['bone', 'liver', 'iron', 'endocrine', 'ulytes'],
+            misc: ['labs', 'text', 'image'],
+            mine: []
         };
+        const DEFAULT_SECTION = {};
+        Object.entries(DEFAULT_LAYOUT).forEach(([sec, list]) => list.forEach(t => { DEFAULT_SECTION[t] = sec; }));
         function invSetLayout() {
             const all = [...INV_ORDER, ...customSets().map(cs => 'cs:' + cs.id)];
             const ls = Store.get('lab_settings', {});
-            const saved = ls.layout || {};
+            const saved = clone(ls.layout || {});
+            // Layouts saved before "Miscellaneous" existed: Other Labs, Free Text and Image move there.
+            if (ls.layout && !ls.layout.misc) Object.keys(saved).forEach(k => { saved[k] = (saved[k] || []).filter(r => !['labs', 'text', 'image'].includes(r)); });
             const oldOrder = ls.order || []; // order saved before sections existed
             const layout = {};
             const placed = new Set();
@@ -4157,7 +4901,8 @@
                 layout[key] = (saved[key] || []).filter(r => all.includes(r) && !placed.has(r));
                 layout[key].forEach(r => placed.add(r));
             });
-            const rank = (r) => { const i = oldOrder.indexOf(r); return i < 0 ? 999 + all.indexOf(r) : i; };
+            const defOrder = SET_SECTIONS.flatMap(([k]) => DEFAULT_LAYOUT[k]);
+            const rank = (r) => { const i = oldOrder.indexOf(r); if (i >= 0) return i; const d = defOrder.indexOf(r); return 999 + (d < 0 ? 500 + all.indexOf(r) : d); };
             all.filter(r => !placed.has(r)).sort((a, b) => rank(a) - rank(b)).forEach(r => {
                 layout[r.startsWith('cs:') ? 'mine' : (DEFAULT_SECTION[r] || 'others')].push(r);
             });
@@ -4198,9 +4943,9 @@
             const sections = SET_SECTIONS.map(([key, label]) => `
                 <div>
                     <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">${label}</h4>
-                    <div class="space-y-2 min-h-[2.75rem] rounded-2xl ${layout[key].length ? '' : 'border-2 border-dashed border-slate-200'}" data-sort-list="invsets" data-sort-group="invsets" data-section="${key}">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 items-start min-h-[2.75rem] rounded-2xl ${layout[key].length ? '' : 'border-2 border-dashed border-slate-200'}" data-sort-list="invsets" data-sort-group="invsets" data-section="${key}">
                         ${layout[key].map(itemHtml).join('')}
-                        ${layout[key].length ? '' : `<p class="text-[11px] text-slate-400 italic px-3 py-3">${key === 'mine' ? 'Use "New set", or drag a set here.' : 'Drag sets here.'}</p>`}
+                        ${layout[key].length ? '' : `<p class="col-span-full text-[11px] text-slate-400 italic px-3 py-3">${key === 'mine' ? 'Use "New set", or drag a set here.' : 'Drag sets here.'}</p>`}
                     </div>
                 </div>`).join('');
             const on = labSettings().useRanges;
@@ -4216,7 +4961,7 @@
                 title: 'Investigation Sets',
                 icon: '<i class="fa-solid fa-microscope text-cyan-600"></i>',
                 actions: toggle,
-                body: `<div class="space-y-4 max-w-2xl">${sections}</div>`
+                body: `<div class="space-y-4">${sections}</div>`
             });
         }
 
@@ -4347,13 +5092,14 @@
 
         /* ---------- Settings boxes: each one can be collapsed (remembered on this device) ---------- */
         let settingsClosed = null;
+        // Collapsed until you open them (settings_closed[id] === false means open).
         function settingsIsOpen(id) {
             if (!settingsClosed) settingsClosed = Store.get('settings_closed', {});
-            return !settingsClosed[id];
+            return settingsClosed[id] === false;
         }
         function toggleSettingsBox(id) {
-            settingsIsOpen(id);
-            settingsClosed[id] = !settingsClosed[id];
+            const open = settingsIsOpen(id);
+            settingsClosed[id] = open;
             Store.set('settings_closed', settingsClosed);
             renderApp();
         }
@@ -4374,7 +5120,7 @@
 
         function saveLabSettings(fn) {
             const s = Store.get('lab_settings', {});
-            if (!s.units) s.units = {};
+            if (!s.units) s.units = clone(DEFAULT_LAB_UNITS);
             if (!s.overrides) s.overrides = {};
             fn(s);
             Store.set('lab_settings', s);
@@ -4618,18 +5364,59 @@
             isMedicalBgCollapsed = collapse;
             memoCollapsed = { daily: collapse, emr: collapse, summary: collapse };
             invBoxCollapsed = collapse;
+            dcPlanCollapsed = collapse;
             const allPatients = Store.getPatients();
             const p = allPatients.find(x => x.id === activePatientId);
             const note = p && p.days && p.days[curKey()];
+            ['medbg', 'memo:daily', 'memo:emr', 'memo:summary', 'inv', 'dcplan'].forEach(k => noteViewChoice(k, !collapse));
             if (note && note.investigations) {
-                note.investigations.forEach(x => { x.collapsed = collapse; });
+                note.investigations.forEach(x => { x.collapsed = collapse; noteViewChoice('card:' + x.id, !collapse); });
                 Store.savePatients(allPatients);
             }
             renderApp();
         }
 
+        /* Collapsible boxes in a patient's entry: everything is open the first time an entry is opened.
+           After you leave it, it comes back collapsed - except the boxes you opened yourself, which stay open.
+           Remembered per entry on this device ("entry_view"). */
+        let viewEntryKey = null;
+        function noteViewChoice(item, open) {
+            if (!viewEntryKey) return;
+            const all = Store.get('entry_view', {});
+            const v = all[viewEntryKey] || (all[viewEntryKey] = { open: [] });
+            v.open = (v.open || []).filter(x => x !== item);
+            if (open) v.open.push(item);
+            Store.set('entry_view', all);
+        }
+        // Returns true if card open/closed states changed (the caller saves).
+        function applyEntryView(p, key) {
+            const id = p.id + '|' + key;
+            const all = Store.get('entry_view', {});
+            const v = all[id];
+            const first = !v;
+            const isOpen = (item) => first || (v.open || []).includes(item);
+            isMedicalBgCollapsed = !isOpen('medbg');
+            memoCollapsed = { daily: !isOpen('memo:daily'), emr: !isOpen('memo:emr'), summary: !isOpen('memo:summary') };
+            invBoxCollapsed = !isOpen('inv');
+            dcPlanCollapsed = !isOpen('dcplan');
+            if (first) {
+                all[id] = { open: [] };
+                const keys = Object.keys(all);
+                if (keys.length > 800) keys.slice(0, keys.length - 800).forEach(k => delete all[k]); // keep it small
+                Store.set('entry_view', all);
+            }
+            let changed = false;
+            const note = p.days && p.days[key];
+            (note && note.investigations || []).forEach(x => {
+                const c = !isOpen('card:' + x.id);
+                if (!!x.collapsed !== c) { x.collapsed = c; changed = true; }
+            });
+            return changed;
+        }
+
         function toggleMedicalBackgroundCollapse() {
             isMedicalBgCollapsed = !isMedicalBgCollapsed;
+            noteViewChoice('medbg', !isMedicalBgCollapsed);
             renderApp();
         }
 
@@ -4642,24 +5429,30 @@
             const tomorrowStr = addDays(currentViewDate, 1);
             const tomorrow = getOrCreateDay(records, tomorrowStr);
             const allPatients = Store.getPatients();
+            let skipped = 0;
             (today[cfg.idsKey] || []).forEach(id => {
                 const p = allPatients.find(x => x.id === id);
                 if (!p) return;
+                const dcNote = getDayNote(p, entryKey(currentViewDate, type));
+                if (dcNote && dcNote.discharge && dcNote.discharge.skipTomorrow) { skipped++; return; } // discharged
                 mergeEntry(p, entryKey(currentViewDate, type), entryKey(tomorrowStr, type));
                 if (!tomorrow[cfg.idsKey].includes(id)) tomorrow[cfg.idsKey].push(id);
             });
-            if (type === 'inpatient') {
-                (today.physicians || []).forEach(dr => { if (!tomorrow.physicians.includes(dr)) tomorrow.physicians.push(dr); });
-            }
+            const lk = physListKey(type);
+            (today[lk] || []).forEach(dr => { if (!tomorrow[lk].includes(dr)) tomorrow[lk].push(dr); });
             Store.saveDailyRecords(records);
             Store.savePatients(allPatients);
             currentViewDate = tomorrowStr;
             renderApp();
-            showToast(`Copied to ${fmtDate(tomorrowStr)}`);
+            showToast(`Copied to ${fmtDate(tomorrowStr)}${skipped ? ` (${skipped} discharged left out)` : ''}`);
         }
 
         function onPhysicianNameChanged(patientId, val) {
             updatePatientField(patientId, 'physician', val.trim());
+            renderApp();
+        }
+        function onConsultantNameChanged(patientId, val) {
+            updatePatientField(patientId, 'consultant', val.trim());
             renderApp();
         }
 
@@ -4827,15 +5620,20 @@
             }
         }
 
-        function clearPlan(patientId) {
+        function planList(note, kind) {
+            const k = (PLAN_KINDS[kind] || PLAN_KINDS.plan).key;
+            if (!Array.isArray(note[k])) note[k] = [];
+            return note[k];
+        }
+        function clearPlan(patientId, kind = 'plan') {
             showConfirm({
-                title: 'Clear all plans?',
-                messageHtml: `This deletes every plan item for ${esc(fmtDate(currentViewDate))}.`,
+                title: `Clear all ${kind === 'dcplan' ? 'discharge plan items' : 'plans'}?`,
+                messageHtml: `This deletes every ${kind === 'dcplan' ? 'discharge plan' : 'plan'} item for ${esc(fmtDate(currentViewDate))}.`,
                 confirmLabel: 'Clear All',
                 onConfirm: () => {
                     const allPatients = Store.getPatients();
                     const note = dayNoteFor(allPatients, patientId);
-                    if (note) note.plan = [];
+                    if (note) note[PLAN_KINDS[kind].key] = [];
                     Store.savePatients(allPatients);
                     editing = null;
                     renderApp();
@@ -4843,39 +5641,44 @@
             });
         }
 
-        function addPlanItem(patientId) {
+        function addPlanItem(patientId, kind = 'plan') {
             const allPatients = Store.getPatients();
-            const p = dayNoteFor(allPatients, patientId);
-            if (!p) return;
-            p.plan.push({ id: 'pl_' + Date.now(), text: '', completed: false });
+            const note = dayNoteFor(allPatients, patientId);
+            if (!note) return;
+            const list = planList(note, kind);
+            list.push({ id: (kind === 'dcplan' ? 'dc_' : 'pl_') + Date.now(), text: '', completed: false });
             Store.savePatients(allPatients);
-            startEditing('plan', p.plan.length - 1);
+            if (kind === 'dcplan') dcPlanCollapsed = false;
+            startEditing(kind, list.length - 1);
         }
 
-        function updatePlanTextLive(patientId, idx, val) {
+        function updatePlanTextLive(patientId, idx, val, kind = 'plan') {
             const allPatients = Store.getPatients();
-            const p = dayNoteFor(allPatients, patientId);
-            if (p && p.plan && p.plan[idx]) {
-                p.plan[idx].text = val;
+            const note = dayNoteFor(allPatients, patientId);
+            const list = note && planList(note, kind);
+            if (list && list[idx]) {
+                list[idx].text = val;
                 Store.savePatients(allPatients);
             }
         }
 
-        function togglePlanItem(patientId, idx) {
+        function togglePlanItem(patientId, idx, kind = 'plan') {
             const allPatients = Store.getPatients();
-            const p = dayNoteFor(allPatients, patientId);
-            if (p && p.plan && p.plan[idx]) {
-                p.plan[idx].completed = !p.plan[idx].completed;
+            const note = dayNoteFor(allPatients, patientId);
+            const list = note && planList(note, kind);
+            if (list && list[idx]) {
+                list[idx].completed = !list[idx].completed;
                 Store.savePatients(allPatients);
                 renderApp();
             }
         }
 
-        function deletePlanItem(patientId, idx) {
+        function deletePlanItem(patientId, idx, kind = 'plan') {
             const allPatients = Store.getPatients();
-            const p = dayNoteFor(allPatients, patientId);
-            if (p && p.plan) {
-                p.plan.splice(idx, 1);
+            const note = dayNoteFor(allPatients, patientId);
+            const list = note && planList(note, kind);
+            if (list) {
+                list.splice(idx, 1);
                 Store.savePatients(allPatients);
                 editing = null;
                 renderApp();
@@ -5066,7 +5869,7 @@
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium text-slate-500 mb-1">Date of birth</label>
-                                    ${dateField('', '', { id: 'modal-pat-dob', cls: 'w-full justify-between px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm', placeholder: 'YYYY/MM/DD' })}
+                                    ${dateField('', '', { id: 'modal-pat-dob', cls: 'w-full justify-between px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs sm:text-sm', placeholder: 'DD/MM/YYYY' })}
                                 </div>
                                 <div>
                                     <label class="block text-xs font-medium text-slate-500 mb-1">Gender</label>
@@ -5102,6 +5905,11 @@
                                     <label class="block text-xs font-medium text-slate-500 mb-1">${isConsult ? 'Primary Team' : 'Physician Name'}</label>
                                     <input type="text" id="modal-pat-physician" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="${isConsult ? 'e.g. Cardiology' : 'e.g. Ahmed'}">
                                 </div>
+                                ${isConsult ? `
+                                <div>
+                                    <label class="block text-xs font-medium text-slate-500 mb-1">Physician Name</label>
+                                    <input type="text" id="modal-pat-consultant" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="e.g. Ahmed">
+                                </div>` : ''}
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-slate-500 mb-1">${isConsult ? 'Consult Date' : 'Admitted on'}</label>
@@ -5238,6 +6046,7 @@
 
             // Blank fields stay blank. Nothing is filled in automatically.
             const drName = val('modal-pat-physician');
+            const consultantName = listType === 'consult' ? val('modal-pat-consultant') : '';
 
             // Same MRN as a registered patient? Ask first; "yes" adds an entry to that patient.
             const match = findPatientByMrn(val('modal-pat-mrn'));
@@ -5259,6 +6068,7 @@
                         bed: val('modal-pat-bed'),
                         goalsOfCare: val('modal-pat-goc'),
                         physician: drName,
+                        consultant: consultantName,
                         admissionDate: isC ? '' : (val('modal-pat-date') || currentViewDate),
                         consultDate: isC ? (val('modal-pat-date') || currentViewDate) : ''
                     }
@@ -5282,6 +6092,7 @@
                         bed: val('modal-pat-bed'),
                         goalsOfCare: val('modal-pat-goc'),
                         physician: drName,
+                        consultant: consultantName,
                         // Inpatients: admitted on. Consults: consult date (admitted on can be filled in later).
                         admissionDate: listType === 'consult' ? '' : (val('modal-pat-date') || currentViewDate),
                         consultDate: listType === 'consult' ? (val('modal-pat-date') || currentViewDate) : '',
@@ -5561,7 +6372,9 @@
            MODALS: physicians + memo
            ========================================================= */
 
-        function openAddPhysicianModal() {
+        let addPhysicianType = 'inpatient';
+        function openAddPhysicianModal(type = 'inpatient') {
+            addPhysicianType = type;
             const container = document.getElementById('modal-container');
             if (!container) return;
 
@@ -5588,28 +6401,29 @@
             const drName = input.value.trim();
             if (!drName) return;
 
-            ensurePhysicianExists(drName);
+            ensurePhysicianExists(drName, addPhysicianType);
             closeModal();
             renderApp();
         }
 
         // Removes a physician for this day. Their inpatients become unassigned (flagged with a red !).
-        function removePhysicianFromList(drName) {
+        function removePhysicianFromList(drName, type = 'inpatient') {
             const day = readDay(currentViewDate);
             const allPatients = Store.getPatients();
-            const theirs = day.inpatientIds.filter(id => {
+            const key = entryKey(currentViewDate, type), field = physField(type), lk = physListKey(type);
+            const theirs = (type === 'consult' ? day.consultIds : day.inpatientIds).filter(id => {
                 const p = allPatients.find(x => x.id === id);
-                return p && (getDayInfo(p, currentViewDate).physician || '').trim() === drName;
+                return p && (getDayInfo(p, key)[field] || '').trim() === drName;
             });
             const doRemove = () => {
                 const records = Store.getDailyRecords();
                 const d = getOrCreateDay(records, currentViewDate);
-                d.physicians = d.physicians.filter(x => x !== drName);
+                d[lk] = d[lk].filter(x => x !== drName);
                 Store.saveDailyRecords(records);
                 const all = Store.getPatients();
                 theirs.forEach(id => {
-                    const info = infoFor(all, id, currentViewDate);
-                    if (info) info.physician = '';
+                    const info = infoFor(all, id, key);
+                    if (info) info[field] = '';
                 });
                 Store.savePatients(all);
                 renderApp();
@@ -5788,6 +6602,10 @@
                                 <div><span class="block text-[11px] text-slate-500 mb-1">To</span>${dateField(currentViewDate, '', { id: 'exp-to', cls: 'w-full justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm' })}</div>
                             </div>
                             <p id="exp-scope-note" class="text-[11px] text-slate-400">All patients, lists and settings. Keep it somewhere safe; restore it with Import Backup.</p>
+                            <label class="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                                <span class="text-xs font-semibold text-slate-700">Include settings <span class="block font-normal text-[11px] text-slate-400">Wards, goals of care, tags, colours, investigation sets, appearance</span></span>
+                                <input type="checkbox" id="exp-settings" checked class="w-5 h-5 accent-amber-600">
+                            </label>
                         </div>
                         ${canEncrypt ? `
                             <div class="space-y-3">
@@ -5823,6 +6641,8 @@
             });
             document.getElementById('exp-day-box').classList.toggle('hidden', v !== 'day');
             document.getElementById('exp-range-box').classList.toggle('hidden', v !== 'range');
+            const inc = document.getElementById('exp-settings');
+            if (inc) inc.checked = v === 'all'; // full backups include settings; day / range files leave them out unless ticked
             document.getElementById('exp-scope-note').textContent = v === 'all'
                 ? 'All patients, lists and settings. Keep it somewhere safe; restore it with Import Backup.'
                 : 'Only the patients on the lists for these days, with those days\' entries — e.g. to send to a colleague. They can import it with "Add".';
@@ -5876,6 +6696,11 @@
 
             const exportedAt = new Date().toISOString();
             let data = collectBackupData();
+            const incBox = document.getElementById('exp-settings');
+            if (incBox && !incBox.checked) {
+                SETTINGS_KEYS.forEach(k => { delete data[k]; });
+                data.noSettings = true;
+            }
             let suffix = '';
             if (exportScope !== 'all') {
                 const val = (id) => (document.getElementById(id) || {}).value || '';
@@ -5904,7 +6729,10 @@
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `roundmaster${suffix || '-backup-' + todayStr()}${pw ? '-encrypted' : ''}.json`;
+            // File name: RM.Ex-YYYY-MM-DD-HHMM (date and 24-hour time of the export)
+            const now = new Date();
+            const pad = (n) => String(n).padStart(2, '0');
+            a.download = `RM.Ex-${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
             document.body.appendChild(a);
             a.click();
             a.remove();
@@ -6023,21 +6851,36 @@
                             <span class="block font-bold text-rose-700 text-sm"><i class="fa-solid fa-arrows-rotate"></i> Replace my data</span>
                             <span class="block text-[11px] text-rose-900/70 mt-0.5">Deletes everything on this device and uses the backup instead. Export your current data first if you might need it.</span>
                         </button>
+                        ${data.noSettings ? `<p class="text-[11px] text-slate-400">This file has no settings; yours stay as they are.</p>` : data.scope ? `
+                            <div class="p-3 rounded-2xl border border-slate-200 bg-slate-50">
+                                <label class="flex items-center justify-between gap-3 cursor-pointer">
+                                    <span class="text-xs font-semibold text-slate-700">Also import settings</span>
+                                    <input type="checkbox" id="imp-settings" onchange="document.getElementById('imp-settings-warn').classList.toggle('hidden', !this.checked)" class="w-5 h-5 accent-amber-600">
+                                </label>
+                                <p class="text-[11px] text-slate-400 mt-1">Off: only patients and lists are imported; your settings stay as they are.</p>
+                                <p id="imp-settings-warn" class="hidden text-[11px] font-semibold text-amber-700 mt-1.5"><i class="fa-solid fa-triangle-exclamation"></i> Your wards, goals of care, tags, colour codes, investigation sets, physician colours and appearance will be replaced by the ones in this file.</p>
+                            </div>` : `<p class="text-[11px] text-slate-400">A full backup includes settings.</p>`}
                         <div class="flex justify-end"><button onclick="pendingImportData = null; closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button></div>
                     </div>
                 </div>`;
         }
+        // Settings carried by a backup (everything except patients and lists).
+        const SETTINGS_KEYS = ['settings', 'physician_colors_v2', 'physician_color_pins', 'lab_settings', 'theme', 'card_scale', 'settings_closed'];
         function runImport(mode) {
             const data = pendingImportData;
+            const box = document.getElementById('imp-settings');
+            // Full backups always bring their settings; one-day / date-range files only when ticked.
+            const withSettings = !!data && !data.noSettings && (!data.scope || !!(box && box.checked));
             pendingImportData = null;
             closeModal();
             if (!data) return;
-            if (mode === 'replace') applyImport(data);
-            else mergeImport(data);
+            if (mode === 'replace') applyImport(data, withSettings);
+            else mergeImport(data, withSettings ? (data.scope ? 'replace' : 'merge') : 'none');
         }
 
         // "Add": merges a backup into what's already here.
-        function mergeImport(data) {
+        // settingsMode: 'merge' (full backup: add what you don't have), 'replace' (overwrite with the file's), 'none'.
+        function mergeImport(data, settingsMode = 'merge') {
             const local = Store.getPatients();
             const records = Store.getDailyRecords();
             const idMap = {};
@@ -6082,6 +6925,7 @@
                 (r.inpatientIds || []).map(map).forEach(id => { if (!day.inpatientIds.includes(id)) day.inpatientIds.push(id); });
                 (r.consultIds || []).map(map).forEach(id => { if (!day.consultIds.includes(id)) day.consultIds.push(id); });
                 (r.physicians || []).forEach(d => { if (!day.physicians.includes(d)) day.physicians.push(d); });
+                (r.consultPhysicians || []).forEach(d => { if (!day.consultPhysicians.includes(d)) day.consultPhysicians.push(d); });
                 (r.postDc || []).forEach(item => { if (!day.postDc.some(x => (x.text || '').trim() === (item.text || '').trim())) day.postDc.push(clone(item)); });
                 Object.entries(r.careFlags || {}).forEach(([k, v]) => {
                     const isC = k.endsWith('@c');
@@ -6089,8 +6933,13 @@
                     if (!day.careFlags[nk]) day.careFlags[nk] = clone(v);
                 });
             });
+            if (settingsMode === 'replace') {
+                SETTINGS_KEYS.forEach(k => { if (data[k] !== undefined) Store.set(k, data[k]); });
+                settingsClosed = null;
+                try { applyTheme(); applyCardScale(); } catch (e) {}
+            }
             // Settings: add wards, goals of care, tags and colour codes you don't have yet.
-            if (data.settings) {
+            if (settingsMode === 'merge' && data.settings) {
                 const st = Store.getSettings();
                 ['wards', 'goalsOfCare', 'tags', 'colorCodes'].forEach(cat => {
                     (data.settings[cat] || []).forEach(item => {
@@ -6100,7 +6949,7 @@
                 Store.saveSettings(st);
             }
             // Investigation sets: add your sets you don't have yet; keep your own edits, units and layout.
-            if (data.lab_settings) {
+            if (settingsMode === 'merge' && data.lab_settings) {
                 saveLabSettings(ls => {
                     const inc = data.lab_settings;
                     (inc.customSets || []).forEach(cs => {
@@ -6112,7 +6961,7 @@
                     if (!ls.layout && inc.layout) ls.layout = clone(inc.layout);
                 });
             }
-            if (data.physician_colors_v2) {
+            if (settingsMode === 'merge' && data.physician_colors_v2) {
                 const prefs = Store.get(PCOLOR_KEY, {});
                 Object.entries(data.physician_colors_v2).forEach(([k, v]) => { if (prefs[k] === undefined) prefs[k] = v; });
                 Store.set(PCOLOR_KEY, prefs);
@@ -6124,9 +6973,10 @@
             alert(`Added ${newPatients} new patient${newPatients === 1 ? '' : 's'} and ${newEntries} entr${newEntries === 1 ? 'y' : 'ies'}. Nothing you already had was changed.`);
         }
 
-        function applyImport(data) {
+        function applyImport(data, withSettings = true) {
             let ok = true;
             BACKUP_KEYS.forEach(k => {
+                if (!withSettings && SETTINGS_KEYS.includes(k)) return; // keep this device's settings
                 try {
                     if (data[k] !== undefined) {
                         localStorage.setItem(STORAGE_PREFIX + k, JSON.stringify(data[k]));
@@ -6137,6 +6987,7 @@
             });
             try { migrateConsultEntries(); } catch (e) {}
             try { migrateRecs(); } catch (e) {}
+            settingsClosed = null;
             try { applyTheme(); applyCardScale(); } catch (e) {}
             currentViewDate = todayStr();
             activePatientId = null;
