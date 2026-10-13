@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-visual">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-visual">
     <title>RoundMaster</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -158,6 +158,22 @@
         .cp-knob { position: absolute; width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 1px 4px rgba(0,0,0,.4); transform: translate(-50%, -50%); pointer-events: none; }
         .cp-hue .cp-knob { top: 50%; }
         .cp-num { width: 100%; text-align: center; padding: 0.35rem 0.25rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; background: #f8fafc; font-weight: 600; font-size: 14px; }
+
+
+        /* Landscape phones / tablets: physicians on the left, patient cards on the right (as on a computer) */
+        @media (min-width: 640px) {
+            html.is-land .list-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+            html.is-land .list-main { grid-column: span 3 / span 3; }
+            html.is-phone.is-land .list-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 5fr); }
+            html.is-phone.is-land .list-main { grid-column: auto; }
+        }
+        /* Phones: smaller patient name in the record header */
+        html.is-phone .rec-name { font-size: calc(19px * var(--ts, 1)) !important; line-height: 1.2; }
+        html.is-phone .rec-head .rh-name { gap: 0.35rem; }
+
+        /* Screen edges with a camera cut-out / rounded corners / home bar: keep content clear of them
+           (the page itself now reaches the edges, so no black bar beside the camera) */
+        body { padding-top: env(safe-area-inset-top, 0px); padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); }
 
         /* Date boxes: type the date, or tap the calendar button */
         .date-field { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -1052,6 +1068,7 @@
             }
 
             document.querySelectorAll('textarea.cult-input, textarea.auto-grow').forEach(autoGrow);
+            refitTextareasSoon();
             layoutInvestigations();
             watchInvCards();
             document.querySelectorAll('.inv-board img').forEach(img => { if (!img.complete) img.addEventListener('load', layoutInvestigations, { once: true }); });
@@ -1937,7 +1954,7 @@
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-4 gap-4">
+                    <div class="list-grid grid grid-cols-1 lg:grid-cols-4 gap-4">
                         ${`
                             <div class="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col ${physiciansCollapsed() ? '' : 'space-y-3'} self-start">
                                 <div class="flex items-center justify-between">
@@ -1970,7 +1987,7 @@
                             </div>
                         `}
 
-                        <div class="lg:col-span-3 flex flex-col space-y-4 min-w-0">
+                        <div class="list-main lg:col-span-3 flex flex-col space-y-4 min-w-0">
                             <div class="flex items-center justify-between">
                                 <h3 class="font-bold text-slate-800 text-sm">${cfg.title}</h3>
                                 <button onclick="openAddPatientModal('${type}')" class="px-3 py-1.5 ${cfg.accentBtn} text-white rounded-xl text-xs font-medium transition flex items-center gap-1.5 shadow-sm">
@@ -2398,9 +2415,6 @@
                                     ${entryDates.slice().reverse().map(d => `<option value="${esc(d)}" ${d === currentViewDate ? 'selected' : ''}>${esc(fmtDate(d))}</option>`).join('')}
                                 </select>
                                 <button ${nextEntry ? `onclick="goToNoteDate(${jsArg(nextEntry)})"` : 'disabled'} class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center transition ${nextEntry ? 'hover:bg-slate-200 text-slate-600' : 'text-slate-300 cursor-not-allowed'}" title="Next entry"><i class="fa-solid fa-chevron-right"></i></button>
-                                <button onclick="setRecordCollapsed(${anyOpen})" class="ml-0.5 h-8 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[calc(11px*var(--ts,1))] font-semibold flex items-center gap-1.5 transition whitespace-nowrap" title="${anyOpen ? 'Collapse all boxes' : 'Expand all boxes'}">
-                                    <i class="fa-solid fa-${anyOpen ? 'down-left-and-up-right-to-center' : 'up-right-and-down-left-from-center'}"></i><span class="hidden sm:inline">${anyOpen ? 'Collapse all' : 'Expand all'}</span>
-                                </button>
                             </div>
                             <div class="rh-care">${renderCareBox(flags, pid, isConsult)}</div>
                         </div>
@@ -2429,7 +2443,10 @@
 
                         ${renderInvestigationsBox(rawPatient, note, pid)}
 
-                        <div class="flex justify-center pt-2 pb-4">
+                        <div class="flex justify-center items-center gap-2 pt-2 pb-4 flex-wrap">
+                            <button onclick="setRecordCollapsed(${anyOpen})" class="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-sm font-semibold shadow-sm flex items-center gap-2 transition" title="${anyOpen ? 'Collapse all boxes' : 'Expand all boxes'}">
+                                <i class="fa-solid fa-${anyOpen ? 'down-left-and-up-right-to-center' : 'up-right-and-down-left-from-center'}"></i> ${anyOpen ? 'Collapse all' : 'Expand all'}
+                            </button>
                             <button onclick="openNoteExtract(${pid})" class="px-6 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold shadow-md flex items-center gap-2 transition">
                                 <i class="fa-solid fa-file-lines"></i> Extract Note
                             </button>
@@ -2516,7 +2533,7 @@
             if (editingTile === 'name') {
                 return `<span data-tile-editing><input data-tile-input type="text" value="${esc(patient.name)}" onblur="commitTile(${pid}, 'name', this.value)" class="font-extrabold text-slate-900 text-[calc(24px*var(--ts,1))] bg-white border-2 border-indigo-300 rounded-lg px-2 py-0.5 w-56"></span>`;
             }
-            return `<span data-tile-trigger onclick="openDetailsEditor(null, 'name')" class="font-extrabold text-slate-900 text-[calc(20px*var(--ts,1))] sm:text-[calc(26px*var(--ts,1))] cursor-pointer hover:text-indigo-600" title="Tap to edit">${esc(patient.name)}</span>`;
+            return `<span data-tile-trigger onclick="openDetailsEditor(null, 'name')" class="rec-name font-extrabold text-slate-900 text-[calc(20px*var(--ts,1))] sm:text-[calc(26px*var(--ts,1))] cursor-pointer hover:text-indigo-600" title="Tap to edit">${esc(patient.name)}</span>`;
         }
         function renderHeaderMrn(patient, pid) {
             if (editingTile === 'mrn') {
@@ -4406,6 +4423,19 @@
             // scrollHeight leaves out the border, so add it back - otherwise a scroll bar appears.
             el.style.height = (el.scrollHeight + el.offsetHeight - el.clientHeight) + 'px';
         }
+        // Styles for new text sizes can land a moment after a redraw; size the growing boxes again then.
+        let refitTimers = [];
+        function refitTextareasSoon() {
+            refitTimers.forEach(clearTimeout);
+            const run = () => {
+                const a = document.activeElement;
+                document.querySelectorAll('textarea.cult-input, textarea.auto-grow').forEach(el => { if (el !== a || !keyboardOpen()) fitTextarea(el); });
+                layoutInvestigations();
+            };
+            requestAnimationFrame(run);
+            refitTimers = [60, 300, 900].map(ms => setTimeout(run, ms));
+        }
+        window.addEventListener('orientationchange', () => setTimeout(refitTextareasSoon, 200));
         function autoGrow(el) {
             fitTextarea(el);
             if (el.closest && el.closest('.inv-board')) layoutInvestigations();
