@@ -240,7 +240,7 @@
     </div>
 
     <div id="modal-container"></div>
-    <input type="file" id="import-file-input" accept=".json,application/json" class="hidden" onchange="handleImportFile(this)">
+    <input type="file" id="import-file-input" class="hidden" onchange="handleImportFile(this)">
 
     <script>
         /* =========================================================
@@ -582,6 +582,7 @@
                 text: pl.text,
                 completed: false
             }));
+            if (src.impression && !note.impression) note.impression = src.impression;
             if (!note.investigations) note.investigations = [];
             mergeInvestigationPanels(src.investigations || [], note.investigations);
             Store.savePatients(allPatients);
@@ -1614,7 +1615,7 @@
                         <span><strong>${esc(status.text)}.</strong> Your data is stored only in this browser. Export a backup so it isn't lost.</span>
                     </div>
                     <button onclick="openExportModal()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium transition flex items-center gap-2">
-                        <i class="fa-solid fa-file-import"></i> Back up now
+                        <i class="fa-solid fa-file-export"></i> Back up now
                     </button>
                 </div>
             `;
@@ -2257,11 +2258,6 @@
             const anyOpen = recordAnyOpen(rawPatient, note, isConsult);
             return `
                 <div class="flex-1 flex flex-col space-y-4">
-                    <div class="flex justify-center -mt-2 sm:-mt-3 -mb-2">
-                        <button onclick="setRecordCollapsed(${anyOpen})" class="px-3 py-1 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-[calc(11px*var(--ts,1))] font-semibold shadow-xs flex items-center gap-1.5 transition">
-                            <i class="fa-solid fa-${anyOpen ? 'down-left-and-up-right-to-center' : 'up-right-and-down-left-from-center'}"></i> ${anyOpen ? 'Collapse all' : 'Expand all'}
-                        </button>
-                    </div>
                     <!-- STICKY TOP BAR: name, tags, MRN, entry navigation, daily care -->
                     <div class="rec-sticky sm:sticky sm:top-0 z-30 bg-slate-50/95 backdrop-blur-md pb-2 sm:pb-3 shadow-sm">
                         <div class="rec-head-box rec-head bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -2277,6 +2273,9 @@
                                     ${entryDates.slice().reverse().map(d => `<option value="${esc(d)}" ${d === currentViewDate ? 'selected' : ''}>${esc(fmtDate(d))}</option>`).join('')}
                                 </select>
                                 <button ${nextEntry ? `onclick="goToNoteDate(${jsArg(nextEntry)})"` : 'disabled'} class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center transition ${nextEntry ? 'hover:bg-slate-200 text-slate-600' : 'text-slate-300 cursor-not-allowed'}" title="Next entry"><i class="fa-solid fa-chevron-right"></i></button>
+                                <button onclick="setRecordCollapsed(${anyOpen})" class="ml-0.5 h-8 px-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 text-[calc(11px*var(--ts,1))] font-semibold flex items-center gap-1.5 transition whitespace-nowrap" title="${anyOpen ? 'Collapse all boxes' : 'Expand all boxes'}">
+                                    <i class="fa-solid fa-${anyOpen ? 'down-left-and-up-right-to-center' : 'up-right-and-down-left-from-center'}"></i><span class="hidden sm:inline">${anyOpen ? 'Collapse all' : 'Expand all'}</span>
+                                </button>
                             </div>
                             <div class="rh-care">${renderCareBox(flags, pid, isConsult)}</div>
                         </div>
@@ -2773,6 +2772,11 @@
                             </div>
                         </div>
                     ` : ''}
+                    ${isConsult ? `
+                        <div class="mt-3">
+                            <h4 class="font-bold text-indigo-900 text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] mb-1.5 px-1">Impression</h4>
+                            <textarea rows="2" data-impression oninput="autoGrow(this); saveImpressionLive(${pid}, this.value)" class="auto-grow resize-none w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-300" style="min-height: 4.5em" placeholder="Impression...">${esc(note.impression || '')}</textarea>
+                        </div>` : ''}
                 </div>
             `;
         }
@@ -3105,7 +3109,7 @@
                 mbList.forEach(m => L.push(NTEXT('• ' + mbText(m))));
                 blank();
                 const summary = (p.caseSummary || '').trim();
-                L.push(NTEXT(`Admitted on [${p.admissionDate ? fmtDate(p.admissionDate) : '—'}].${summary ? ' ' + withDot(summary.replace(/\s*\n+\s*/g, ' ')) : ''}`));
+                L.push(NTEXT(`[${p.admissionDate ? fmtDate(p.admissionDate) : '—'}].${summary ? ' ' + withDot(summary.replace(/\s*\n+\s*/g, ' ')) : ''}`));
                 const first = issues[0] ? withDot(issues[0].issue || '') : '';
                 L.push(NTEXT(`We were consulted on [${p.consultDate ? fmtDate(p.consultDate) : '—'}] for ${first || '—.'}`));
                 blank(2);
@@ -3119,7 +3123,8 @@
                 assessment();
                 blank(2);
                 L.push(NTEXT('IMPRESSION', H));
-                L.push(NL([NPH('Impression line')]));
+                const imp = textLines(note.impression);
+                if (imp.length) L.push(...imp); else L.push(NL([NPH('Impression')]));
                 blank();
                 L.push(NL([NT('RECOMMENDATIONS as discussed with Dr. '), NPH('NAME')], H));
                 bulletLines(note.plan);
@@ -5410,8 +5415,8 @@
                         subCls: 'text-amber-800/70',
                         sub: 'All data is stored only in this browser on this device. Export a backup regularly and keep it somewhere safe.',
                         actions: `
-                            <button onclick="openExportModal()" class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-file-import"></i> Export Backup</button>
-                            <button onclick="triggerImport()" class="px-3 py-2 bg-white hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-file-export"></i> Import Backup</button>`,
+                            <button onclick="openExportModal()" class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-file-export"></i> Export Backup</button>
+                            <button onclick="triggerImport()" class="px-3 py-2 bg-white hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-file-import"></i> Import Backup</button>`,
                         body: `
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                                 <div class="p-3 rounded-2xl bg-white/70 border border-amber-200">
@@ -6639,6 +6644,15 @@
             renderApp();
         }
 
+        // Consult Impression box: saved as you type (no redraw, so the keyboard stays put)
+        function saveImpressionLive(patientId, value) {
+            const allPatients = Store.getPatients();
+            const note = dayNoteFor(allPatients, patientId);
+            if (!note) return;
+            note.impression = value;
+            Store.savePatients(allPatients);
+        }
+
         function saveMemo(patientId) {
             const ta = document.getElementById('modal-memo-text');
             if (!ta) return;
@@ -6766,7 +6780,7 @@
                         <p id="modal-export-error" class="hidden text-xs text-rose-600"></p>
                         <div class="flex justify-end space-x-2 pt-2">
                             <button onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
-                            <button id="modal-export-btn" onclick="submitExport()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium flex items-center gap-2"><i class="fa-solid fa-file-import"></i> Download Backup</button>
+                            <button id="modal-export-btn" onclick="submitExport()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium flex items-center gap-2"><i class="fa-solid fa-file-export"></i> Download Backup</button>
                         </div>
                     </div>
                 </div>
@@ -6900,7 +6914,11 @@
             reader.onload = () => {
                 let parsed;
                 try {
-                    parsed = JSON.parse(reader.result);
+                    // Read by content, not by file name: some phones save the backup as .txt, .bin or with no extension.
+                    let text = String(reader.result || '').replace(/^\uFEFF/, '').trim();
+                    const i = text.indexOf('{'), j = text.lastIndexOf('}');
+                    if (i > 0 || (j >= 0 && j < text.length - 1)) text = text.slice(i, j + 1);
+                    parsed = JSON.parse(text);
                 } catch(e) {
                     alert('This file is not a valid RoundMaster backup.');
                     return;
