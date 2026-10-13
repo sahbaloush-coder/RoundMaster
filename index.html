@@ -254,8 +254,8 @@
                 <button onclick="router.navigate('all_patients')" class="px-3 py-2 text-sm font-medium rounded-xl hover:bg-maroon-50 text-maroon-600 transition flex items-center gap-2">
                     <i class="fa-solid fa-users"></i> <span class="hidden sm:inline">All Patients</span>
                 </button>
-                <button onclick="router.navigate('settings')" class="p-2 text-slate-500 hover:bg-slate-100 rounded-xl transition" title="Settings">
-                    <i class="fa-solid fa-gear text-lg"></i>
+                <button onclick="exitApp()" class="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition" title="Close RoundMaster">
+                    <i class="fa-solid fa-xmark text-xl"></i>
                 </button>
             </div>
         </header>
@@ -2420,6 +2420,13 @@
                         </div>
                     </div>
 
+                    <!-- Collapse / Expand all: its own slim row between the header and the details (never overlapping them) -->
+                    <div class="rec-collapse-row flex justify-center" style="margin-top: 0.35rem; margin-bottom: -0.4rem;">
+                        <button onclick="setRecordCollapsed(${anyOpen})" class="px-3 py-1 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-[calc(11px*var(--ts,1))] font-semibold shadow-xs flex items-center gap-1.5 transition" title="${anyOpen ? 'Collapse all boxes' : 'Expand all boxes'}">
+                            <i class="fa-solid fa-${anyOpen ? 'down-left-and-up-right-to-center' : 'up-right-and-down-left-from-center'}"></i> ${anyOpen ? 'Collapse all' : 'Expand all'}
+                        </button>
+                    </div>
+
                     <div class="flex flex-col space-y-4">
                         ${renderDetailsBanner(patient, settings, { wardBg, wardColor, gocBg, gocColor, drColor, genderBg, diffDays, isConsult })}
 
@@ -2443,10 +2450,7 @@
 
                         ${renderInvestigationsBox(rawPatient, note, pid)}
 
-                        <div class="flex justify-center items-center gap-2 pt-2 pb-4 flex-wrap">
-                            <button onclick="setRecordCollapsed(${anyOpen})" class="px-4 py-2.5 rounded-2xl bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 text-sm font-semibold shadow-sm flex items-center gap-2 transition" title="${anyOpen ? 'Collapse all boxes' : 'Expand all boxes'}">
-                                <i class="fa-solid fa-${anyOpen ? 'down-left-and-up-right-to-center' : 'up-right-and-down-left-from-center'}"></i> ${anyOpen ? 'Collapse all' : 'Expand all'}
-                            </button>
+                        <div class="flex justify-center pt-2 pb-4">
                             <button onclick="openNoteExtract(${pid})" class="px-6 py-2.5 rounded-2xl bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold shadow-md flex items-center gap-2 transition">
                                 <i class="fa-solid fa-file-lines"></i> Extract Note
                             </button>
@@ -5529,6 +5533,10 @@
             const t = getTheme();
             const dark = t === 'dark' || (t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
             document.documentElement.classList.toggle('dark', dark);
+            // Phone status / navigation bar colour follows the app (dark bar in dark mode)
+            let meta = document.querySelector('meta[name="theme-color"]');
+            if (!meta) { meta = document.createElement('meta'); meta.name = 'theme-color'; document.head.appendChild(meta); }
+            meta.content = dark ? '#0f1218' : '#f8fafc';
         }
         function setTheme(t) {
             Store.set('theme', t);
@@ -7521,6 +7529,60 @@
             }, true);
         }
         function IS_IOS_DEVICE() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+
+        /* =========================================================
+           ANDROID FULL SCREEN + CLOSE BUTTON
+           The installed app asks Android for full screen (manifest). If Android drops out of it
+           (or hasn't applied it yet), the next tap puts it back. Back with the bars hidden still
+           goes back a page, as usual.
+           ========================================================= */
+        const IS_ANDROID = /Android/i.test(navigator.userAgent);
+        const isInstalledApp = () => ['standalone', 'fullscreen', 'minimal-ui'].some(m => window.matchMedia && matchMedia(`(display-mode: ${m})`).matches);
+        const MANIFEST_FULLSCREEN = !!(window.matchMedia && matchMedia('(display-mode: fullscreen)').matches); // read before any script full screen
+        let fsByScript = false, appClosing = false, lastPickerOpen = 0;
+        function wantScriptFullscreen() {
+            return IS_ANDROID && isInstalledApp() && !MANIFEST_FULLSCREEN && document.fullscreenEnabled && !appClosing;
+        }
+        function ensureFullscreen() {
+            if (!wantScriptFullscreen() || document.fullscreenElement) return;
+            try {
+                document.documentElement.requestFullscreen({ navigationUI: 'hide' }).then(() => { fsByScript = true; }).catch(() => {});
+            } catch (e) {}
+        }
+        if (IS_ANDROID) {
+            document.addEventListener('pointerup', ensureFullscreen, true);
+            document.addEventListener('click', (e) => {
+                // file / camera pickers open another screen and drop full screen on purpose - not a "back"
+                if (e.target && e.target.closest && e.target.closest('input[type="file"], label')) lastPickerOpen = Date.now();
+                ensureFullscreen();
+            }, true);
+            document.addEventListener('fullscreenchange', () => {
+                if (document.fullscreenElement || !fsByScript) return;
+                fsByScript = false;
+                if (appClosing) return;
+                // Android's Back leaves full screen first; treat that as the Back it was meant to be.
+                setTimeout(() => {
+                    if (document.visibilityState !== 'visible' || Date.now() - lastPickerOpen < 3000) return;
+                    history.back();
+                }, 120);
+            });
+            document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') lastPickerOpen = Date.now(); });
+        }
+
+        // [x] in the header: close the app (where the system allows a page to close itself).
+        function exitApp() {
+            appClosing = true;
+            try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) {}
+            try { window.close(); } catch (e) {}
+            setTimeout(() => {
+                if (document.visibilityState === 'hidden') return; // closed / in background
+                appClosing = false;
+                const how = IS_IOS_DEVICE() ? 'swipe up from the bottom of the screen'
+                    : IS_ANDROID ? 'swipe up from the bottom (or use the Home / Recents button)'
+                    : 'close this browser tab or window';
+                showToast(`Your data is saved. This device doesn't let the app close itself — ${how}.`);
+            }, 350);
+        }
 
         /* =========================================================
            ON-SCREEN KEYBOARD
