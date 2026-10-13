@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, interactive-widget=resizes-visual">
     <title>RoundMaster</title>
     <link rel="manifest" href="manifest.webmanifest">
     <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -15,12 +15,27 @@
     <script src="vendor/tailwind.js"></script>
     <script>
         // Extra colour used for the All Patients pages.
-        tailwind.config = { theme: { extend: { colors: { maroon: {
+        tailwind.config = { theme: { fontSize: { 'xs': ['calc(0.75rem * var(--ts, 1))', { lineHeight: 'calc(1rem * var(--ts, 1))' }], 'sm': ['calc(0.875rem * var(--ts, 1))', { lineHeight: 'calc(1.25rem * var(--ts, 1))' }], 'base': ['calc(1rem * var(--ts, 1))', { lineHeight: 'calc(1.5rem * var(--ts, 1))' }], 'lg': ['calc(1.125rem * var(--ts, 1))', { lineHeight: 'calc(1.75rem * var(--ts, 1))' }], 'xl': ['calc(1.25rem * var(--ts, 1))', { lineHeight: 'calc(1.75rem * var(--ts, 1))' }], '2xl': ['calc(1.5rem * var(--ts, 1))', { lineHeight: 'calc(2rem * var(--ts, 1))' }], '3xl': ['calc(1.875rem * var(--ts, 1))', { lineHeight: 'calc(2.25rem * var(--ts, 1))' }], '4xl': ['calc(2.25rem * var(--ts, 1))', { lineHeight: 'calc(2.5rem * var(--ts, 1))' }], '5xl': ['calc(3rem * var(--ts, 1))', { lineHeight: '1' }] }, extend: { colors: { maroon: {
             50: '#fbf1f2', 100: '#f6e0e3', 200: '#ebbfc4', 300: '#d9939b', 400: '#bf5f6b', 500: '#a33a47', 600: '#8c2533', 700: '#751c29', 800: '#5e1621', 900: '#4a111a'
         } } } } };
     </script>
     <script>
         // Apply the saved appearance (light / dark / match device) before the page paints.
+        // Device orientation (not the visible area, which shrinks when the on-screen keyboard opens)
+        function rmOrientation() {
+            var land;
+            try {
+                if (screen.orientation && screen.orientation.type) land = screen.orientation.type.indexOf('landscape') === 0;
+                else if (typeof window.orientation === 'number') land = Math.abs(window.orientation) === 90;
+            } catch (e) {}
+            if (land === undefined) land = window.innerWidth > window.innerHeight;
+            document.documentElement.classList.toggle('is-land', land);
+        }
+        rmOrientation();
+        try { if (screen.orientation) screen.orientation.addEventListener('change', rmOrientation); } catch (e) {}
+        window.addEventListener('orientationchange', function () { setTimeout(rmOrientation, 50); });
+        window.addEventListener('resize', rmOrientation);
+        try { var ts = JSON.parse(localStorage.getItem('roundmaster_text_scale') || '1'); if (ts && ts !== 1) document.documentElement.style.setProperty('--ts', String(ts)); } catch (e) {}
         try {
             var t = JSON.parse(localStorage.getItem('roundmaster_theme') || '"light"');
             if (t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -39,7 +54,7 @@
         .drag-handle { touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
         .drag-handle:active { cursor: grabbing; }
         textarea.auto-grow, textarea.cult-input { overflow-y: hidden; }
-        .lab-range { font-size: 11px; zoom: 0.82; margin-top: 1px; }
+        .lab-range { font-size: calc(11px * var(--ts, 1)); zoom: 0.82; margin-top: 1px; }
         .note-ph { background: #dcfce7; color: #166534; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -1px 0 #86efac; }
         .note-ph.filled { background: transparent; color: inherit; padding: 0; box-shadow: none; }
         [data-sort-item].dragging { opacity: 0.85; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18); position: relative; z-index: 30; }
@@ -47,9 +62,38 @@
 
         /* Active Issues + Plan: side by side on wide landscape screens, stacked on phones / portrait tablets */
         .issues-plan-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
-        @media (min-width: 900px) and (orientation: landscape) {
-            .issues-plan-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+        /* Side by side: landscape phones / tablets / desktops, and portrait iPad Air / Pro (≥ 800px wide).
+           iPad mini (744px) stays stacked in portrait. html.is-land follows the DEVICE's orientation
+           (set by script), so an on-screen keyboard never reshuffles the page. */
+        @media (min-width: 800px) { .issues-plan-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+        @media (min-width: 640px) { html.is-land .issues-plan-grid { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); } }
+
+        /* Record header: stacked on phones in portrait; one row (days left · name · daily care right)
+           on landscape phones, landscape tablets and desktops */
+        .rec-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.5rem; }
+        .rec-head > .rh-name { width: 100%; order: 0; }
+        .rec-head > .rh-nav { order: 1; }
+        .rec-head > .rh-care { order: 2; }
+        @media (min-width: 1024px) {
+            .rec-head { flex-wrap: nowrap; justify-content: space-between; gap: 0.75rem; }
+            .rec-head > .rh-nav { order: 0; flex-shrink: 0; }
+            .rec-head > .rh-name { order: 1; width: auto; flex: 1 1 0; min-width: 0; }
+            .rec-head > .rh-care { order: 2; flex-shrink: 0; }
         }
+        @media (min-width: 640px) {
+            html.is-land .rec-head { flex-wrap: nowrap; justify-content: space-between; gap: 0.75rem; }
+            html.is-land .rec-head > .rh-nav { order: 0; flex-shrink: 0; }
+            html.is-land .rec-head > .rh-name { order: 1; width: auto; flex: 1 1 0; min-width: 0; }
+            html.is-land .rec-head > .rh-care { order: 2; flex-shrink: 0; }
+        }
+        /* Landscape phones: slimmer header */
+        @media (max-height: 520px) {
+            html.is-land .rec-head-box { padding: 0.4rem 0.6rem !important; }
+            html.is-land .rec-sticky { padding-bottom: 0.4rem !important; }
+            html.is-land .rec-head .care-label { display: none; }
+        }
+        /* While the on-screen keyboard is open, the record header stops sticking so it can't cover the box you're typing in */
+        html.kb-open .rec-sticky { position: static !important; }
 
         /* Date boxes: type the date, or tap the calendar button */
         .date-field { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -75,7 +119,9 @@
         /* Active Issues / Consult Details: the opposite of the app's theme (dark box in light mode, light in dark mode) */
 
         /* Card size (Settings → Appearance): scales the main content boxes */
-        :root { --card-scale: 1; }
+        :root { --card-scale: 1; --ts: 1; }
+        /* Text size (Settings → Appearance): scales only the text, everywhere */
+        body { font-size: calc(16px * var(--ts, 1)); }
         .size-scale { zoom: var(--card-scale); }
 
         /* Clickable read-only items that open inline editing */
@@ -237,7 +283,7 @@
 
         const STORAGE_PREFIX = 'roundmaster_';
         // Everything a backup carries: patients, lists, settings, physician colours, lab units/ranges, appearance.
-        const BACKUP_KEYS = ['settings', 'all_patients', 'daily_records', 'physician_colors_v2', 'physician_color_pins', 'lab_settings', 'theme', 'card_scale', 'settings_closed', 'entry_split_v1'];
+        const BACKUP_KEYS = ['settings', 'all_patients', 'daily_records', 'physician_colors_v2', 'physician_color_pins', 'lab_settings', 'theme', 'card_scale', 'text_scale', 'settings_closed', 'entry_split_v1'];
         let saveErrorShown = false;
 
         const Store = {
@@ -679,7 +725,7 @@
         function missingDetails(p, isConsult = false) {
             return requiredFor(isConsult).filter(([f]) => !String(p[f] || '').trim()).map(([, label]) => label);
         }
-        const MISSING_MARK = `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-500 text-white text-[11px] font-black align-middle" title="Missing — please fill in">!</span>`;
+        const MISSING_MARK = `<span class="inline-flex items-center justify-center w-5 h-5 rounded-full bg-rose-500 text-white text-[calc(11px*var(--ts,1))] font-black align-middle" title="Missing — please fill in">!</span>`;
         // Shows the value, or a red (!) when it's empty.
         function orMissing(v) {
             return String(v || '').trim() ? esc(v) : MISSING_MARK;
@@ -764,8 +810,31 @@
         let profileEncounterIdx = 0; // which encounter is expanded on the All Patients record (0 = most recent)
         let storagePersisted = null; // true / false / null (unsupported or unknown)
 
+        // Browser / Android back button: every page change is a history step, so Back returns to the
+        // previous page instead of leaving the app. Back with a pop-up open just closes the pop-up.
+        function navState() {
+            return { rm: 1, route: currentRoute, date: currentViewDate, patientId: activePatientId, type: currentEntryType };
+        }
+        let navFromHistory = false;
+        window.addEventListener('popstate', (e) => {
+            const container = document.getElementById('modal-container');
+            if (container && container.innerHTML.trim()) {
+                if (typeof dcDraft !== 'undefined') dcDraft = null;
+                closeModal();
+                try { history.pushState(navState(), ''); } catch (err) {}
+                return;
+            }
+            const st = e.state;
+            if (!st || !st.rm) return;
+            navFromHistory = true;
+            try {
+                router.navigate(st.route, { date: st.date, patientId: st.patientId, type: st.type });
+            } finally { navFromHistory = false; }
+        });
+
         const router = {
             navigate(route, params = {}) {
+                const fromRoute = currentRoute, fromPid = activePatientId;
                 if (editing) { cleanupEditing(); editing = null; }
                 if (route === 'patient_profile') profileEncounterIdx = -1;
                 editingTile = (params && params.editTile) || null;
@@ -775,6 +844,13 @@
                 if (params && params.patientId) activePatientId = params.patientId;
                 window.scrollTo(0, 0);
                 renderApp();
+                if (!navFromHistory) {
+                    try {
+                        const same = fromRoute === route && fromPid === activePatientId;
+                        if (same) history.replaceState(navState(), '');
+                        else history.pushState(navState(), '');
+                    } catch (err) {}
+                }
             }
         };
 
@@ -1429,7 +1505,7 @@
                                     ${usedBy[i] !== undefined && i !== current ? '<span class="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-white border-2 border-slate-400"></span>' : ''}
                                 </button>`).join('')}
                         </div>
-                        <p class="text-[11px] text-slate-400"><span class="inline-block w-2.5 h-2.5 rounded-full bg-white border-2 border-slate-400 align-middle"></span> = in use by another name today. Choosing it gives that name a different colour today.</p>
+                        <p class="text-[calc(11px*var(--ts,1))] text-slate-400"><span class="inline-block w-2.5 h-2.5 rounded-full bg-white border-2 border-slate-400 align-middle"></span> = in use by another name today. Choosing it gives that name a different colour today.</p>
                     </div>
                 </div>`;
         }
@@ -1478,9 +1554,9 @@
             const status = getBackupStatus();
             if (status.days !== null && status.days < 1) return '';
             return `
-                <div class="w-full max-w-5xl mb-6 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3">
-                    <div class="flex items-center gap-3 text-sm">
-                        <i class="fa-solid fa-triangle-exclamation text-amber-500"></i>
+                <div class="w-full max-w-5xl mb-6 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl p-4 flex flex-col items-center justify-center text-center gap-3">
+                    <div class="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 text-sm">
+                        <i class="fa-solid fa-triangle-exclamation text-amber-500 text-lg sm:text-base"></i>
                         <span><strong>${esc(status.text)}.</strong> Your data is stored only in this browser. Export a backup so it isn't lost.</span>
                     </div>
                     <button onclick="openExportModal()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium transition flex items-center gap-2">
@@ -1662,7 +1738,7 @@
                     <div class="bg-white p-2 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-2 flex-wrap">
                         <div class="flex items-center gap-1 sm:gap-2">
                             <button onclick="changeDate(-1)" class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition" title="Previous day"><i class="fa-solid fa-chevron-left text-xs sm:text-sm"></i></button>
-                            ${dateField(currentViewDate, 'updateViewDate(this.value)', { cls: `compact-date px-2 sm:px-3 py-1.5 sm:py-2 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl font-semibold text-slate-700 text-[13px] sm:text-sm ${cfg.accentHover}` })}
+                            ${dateField(currentViewDate, 'updateViewDate(this.value)', { cls: `compact-date px-2 sm:px-3 py-1.5 sm:py-2 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl font-semibold text-slate-700 text-[calc(13px*var(--ts,1))] sm:text-sm ${cfg.accentHover}` })}
                             <button onclick="changeDate(1)" class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition" title="Next day"><i class="fa-solid fa-chevron-right text-xs sm:text-sm"></i></button>
                         </div>
                         <div class="flex items-center gap-1 sm:gap-2">
@@ -1687,7 +1763,7 @@
                                 <div class="flex items-center justify-between">
                                     <button onclick="togglePhysiciansBox()" class="font-bold text-slate-800 text-sm flex items-center gap-2">
                                         Physicians (${phys.length})
-                                        <i class="fa-solid fa-chevron-${physiciansCollapsed() ? 'down' : 'up'} text-[10px] text-slate-400"></i>
+                                        <i class="fa-solid fa-chevron-${physiciansCollapsed() ? 'down' : 'up'} text-[calc(10px*var(--ts,1))] text-slate-400"></i>
                                     </button>
                                     <div class="flex items-center gap-1">
                                         <button onclick="refreshPhysiciansFromPatients('${type}')" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs transition" title="Update: keep only physicians assigned to patients"><i class="fa-solid fa-rotate"></i></button>
@@ -1765,7 +1841,7 @@
             const drColor = getPhysicianColor(cardDr);
             const genderBg = p.gender === 'F' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700';
             const memoBtn = (onclick, label, icon, text, on, off) => `
-                <button onclick="${onclick}" title="${esc(text || 'Add ' + label.toLowerCase())}" class="px-2.5 py-1 rounded-lg text-[11px] font-medium transition flex items-center gap-1.5 shadow-xs border ${text ? on : off}">
+                <button onclick="${onclick}" title="${esc(text || 'Add ' + label.toLowerCase())}" class="px-2.5 py-1 rounded-lg text-[calc(11px*var(--ts,1))] font-medium transition flex items-center gap-1.5 shadow-xs border ${text ? on : off}">
                     <i class="fa-solid ${icon}"></i> ${label}
                 </button>`;
 
@@ -1777,13 +1853,13 @@
                             <div class="flex items-center justify-center lg:justify-start gap-1.5 flex-wrap">
                                 ${entryTypeBadge(type)}
                                 ${isEditingMode ? `
-                                    <input type="text" value="${esc(p.name)}" onchange="updatePatientField(${id}, 'name', this.value)" class="font-extrabold text-slate-900 text-[28px] bg-slate-50 border border-slate-300 rounded px-2 py-1 w-56">
+                                    <input type="text" value="${esc(p.name)}" onchange="updatePatientField(${id}, 'name', this.value)" class="font-extrabold text-slate-900 text-[calc(28px*var(--ts,1))] bg-slate-50 border border-slate-300 rounded px-2 py-1 w-56">
                                 ` : `
-                                    <a href="javascript:void(0)" onclick="router.navigate('patient_file', { patientId: ${id}, date: ${jsArg(currentViewDate)} })" class="font-extrabold text-slate-900 ${cfg.accentText} text-[22px] sm:text-[28px] leading-tight">${esc(p.name)}</a>
+                                    <a href="javascript:void(0)" onclick="router.navigate('patient_file', { patientId: ${id}, date: ${jsArg(currentViewDate)} })" class="font-extrabold text-slate-900 ${cfg.accentText} text-[calc(22px*var(--ts,1))] sm:text-[calc(28px*var(--ts,1))] leading-tight">${esc(p.name)}</a>
                                 `}
                                 ${missing.length ? `
                                     <button onclick="openDetailsEditor(${id})" class="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 flex items-center gap-1.5" title="Missing: ${esc(missing.join(', '))}">
-                                        <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-black">!</span> ${missing.length} missing
+                                        <span class="inline-flex items-center justify-center w-4 h-4 rounded-full bg-rose-500 text-white text-[calc(10px*var(--ts,1))] font-black">!</span> ${missing.length} missing
                                     </button>
                                 ` : ''}
                                 <div class="flex items-center space-x-1">
@@ -1795,13 +1871,13 @@
                                 ${isEditingMode ? `
                                     <div class="relative">
                                         <button onclick="toggleTagDropdown(${id})" class="px-2.5 py-1 rounded-lg text-xs font-semibold border border-slate-300 bg-white text-slate-700 flex items-center gap-1 shadow-xs">
-                                            <span>Tags (${pTags.length})</span> <i class="fa-solid fa-chevron-down text-[10px]"></i>
+                                            <span>Tags (${pTags.length})</span> <i class="fa-solid fa-chevron-down text-[calc(10px*var(--ts,1))]"></i>
                                         </button>
                                         <div id="tag-dropdown-${esc(p.id)}" class="hidden absolute left-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-lg z-20 p-2 space-y-1 max-h-48 overflow-y-auto text-slate-800">
                                             ${settings.tags.map(t => `
                                                 <label class="flex items-center space-x-2 p-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs">
                                                     <input type="checkbox" ${pTags.includes(t.name) ? 'checked' : ''} onchange="togglePatientTag(${id}, ${jsArg(t.name)})" class="rounded text-indigo-600">
-                                                    <span class="px-2 py-0.5 rounded text-[11px] font-semibold" style="background-color: ${esc(t.color)}; color: ${esc(t.fontColor)}">${esc(t.name)}</span>
+                                                    <span class="px-2 py-0.5 rounded text-[calc(11px*var(--ts,1))] font-semibold" style="background-color: ${esc(t.color)}; color: ${esc(t.fontColor)}">${esc(t.name)}</span>
                                                 </label>
                                             `).join('')}
                                         </div>
@@ -1810,28 +1886,28 @@
                             </div>
 
                             <!-- Small info chips: MRN, age, gender, admitted/consult date, day count (centred on phones) -->
-                            <div class="flex items-center justify-center lg:justify-end gap-1 flex-wrap text-[11px]">
+                            <div class="flex items-center justify-center lg:justify-end gap-1 flex-wrap text-[calc(11px*var(--ts,1))]">
                                 <div class="flex items-center gap-0.5 bg-white/70 px-1.5 py-0.5 rounded-lg border border-slate-200">
-                                    <span class="text-[9px] text-slate-400">MRN</span>
+                                    <span class="text-[calc(9px*var(--ts,1))] text-slate-400">MRN</span>
                                     ${isEditingMode ? `
-                                        <input type="text" value="${esc(p.mrn)}" onchange="updatePatientField(${id}, 'mrn', this.value)" class="w-16 bg-white border border-slate-200 rounded px-1 text-[11px] font-medium text-slate-800">
+                                        <input type="text" value="${esc(p.mrn)}" onchange="updatePatientField(${id}, 'mrn', this.value)" class="w-16 bg-white border border-slate-200 rounded px-1 text-[calc(11px*var(--ts,1))] font-medium text-slate-800">
                                     ` : `<span class="font-bold text-slate-700">${esc(p.mrn || '-')}</span>`}
                                 </div>
                                 <div class="flex items-center gap-0.5 bg-white/70 px-1.5 py-0.5 rounded-lg border border-slate-200">
                                     ${isEditingMode ? `
-                                        <span class="text-[9px] text-slate-400">DOB</span>${dateField(p.dob || '', `updatePatientField(${id}, 'dob', this.value)`, { cls: 'compact-date bg-white border border-slate-200 rounded px-1 text-[11px] font-semibold text-slate-800' })}
+                                        <span class="text-[calc(9px*var(--ts,1))] text-slate-400">DOB</span>${dateField(p.dob || '', `updatePatientField(${id}, 'dob', this.value)`, { cls: 'compact-date bg-white border border-slate-200 rounded px-1 text-[calc(11px*var(--ts,1))] font-semibold text-slate-800' })}
                                     ` : `<span class="font-bold text-slate-700" title="${p.dob ? 'DOB ' + esc(fmtDate(p.dob)) : 'Date of birth missing'}">${ageText(p, currentViewDate) ? esc(ageText(p, currentViewDate)) : 'Age'}${p.dob ? '' : ' ' + MISSING_MARK}</span>`}
                                 </div>
                                 ${isEditingMode ? `
-                                    <select onchange="updatePatientField(${id}, 'gender', this.value); renderApp()" class="border border-slate-200 rounded-lg px-1 py-0.5 text-[11px] font-bold ${genderBg}">
+                                    <select onchange="updatePatientField(${id}, 'gender', this.value); renderApp()" class="border border-slate-200 rounded-lg px-1 py-0.5 text-[calc(11px*var(--ts,1))] font-bold ${genderBg}">
                                         <option value="M" ${p.gender !== 'F' ? 'selected' : ''}>M</option>
                                         <option value="F" ${p.gender === 'F' ? 'selected' : ''}>F</option>
                                     </select>
-                                ` : `<span class="px-2 py-0.5 rounded-lg font-bold text-[11px] ${genderBg}">${esc(p.gender || 'M')}</span>`}
+                                ` : `<span class="px-2 py-0.5 rounded-lg font-bold text-[calc(11px*var(--ts,1))] ${genderBg}">${esc(p.gender || 'M')}</span>`}
                                 <div class="flex items-center gap-0.5 bg-white/70 px-1.5 py-0.5 rounded-lg border border-slate-200">
-                                    <span class="text-[9px] text-slate-400">${cfg.admShort}</span>
+                                    <span class="text-[calc(9px*var(--ts,1))] text-slate-400">${cfg.admShort}</span>
                                     ${isEditingMode
-                                        ? dateField(cardDate, `updatePatientField(${id}, '${cfg.dateField}', this.value)`, { cls: 'compact-date bg-white border border-slate-200 rounded px-1 text-[11px] font-semibold text-slate-800' })
+                                        ? dateField(cardDate, `updatePatientField(${id}, '${cfg.dateField}', this.value)`, { cls: 'compact-date bg-white border border-slate-200 rounded px-1 text-[calc(11px*var(--ts,1))] font-semibold text-slate-800' })
                                         : `<span class="font-semibold text-slate-700">${cardDate ? esc(fmtDate(cardDate)) : MISSING_MARK}</span>`}
                                 </div>
                                 <div class="${cfg.dayChip} px-1.5 py-0.5 rounded-lg font-bold">Day ${diffDays !== null ? diffDays : '-'}</div>
@@ -1843,35 +1919,35 @@
                             <div class="flex items-stretch gap-1.5 flex-wrap text-xs">
                                 <div class="px-2 py-1 rounded-lg border border-slate-200/60 shadow-xs flex items-center justify-center min-w-[2.5rem] text-center" style="background-color: ${esc(wardBg)}; color: ${esc(wardColor)}" title="Ward">
                                     ${isEditingMode ? `
-                                        <input type="text" list="ward-options" value="${esc(p.ward || '')}" onchange="setWardField(${id}, this.value)" class="w-14 bg-white/90 border rounded px-0.5 text-[11px] font-bold text-slate-800 text-center" placeholder="Ward">
+                                        <input type="text" list="ward-options" value="${esc(p.ward || '')}" onchange="setWardField(${id}, this.value)" class="w-14 bg-white/90 border rounded px-0.5 text-[calc(11px*var(--ts,1))] font-bold text-slate-800 text-center" placeholder="Ward">
                                     ` : `<span class="font-bold">${orMissing(p.ward)}</span>`}
                                 </div>
                                 <div class="bg-white/70 px-2 py-1 rounded-lg border border-slate-200/60 flex items-center justify-center min-w-[2.5rem] text-center" title="Room">
                                     ${isEditingMode ? `
-                                        <input type="text" value="${esc(p.room || '')}" onchange="updatePatientField(${id}, 'room', this.value)" class="w-12 bg-white border rounded px-0.5 text-[11px] font-bold text-slate-800 text-center" placeholder="Room">
+                                        <input type="text" value="${esc(p.room || '')}" onchange="updatePatientField(${id}, 'room', this.value)" class="w-12 bg-white border rounded px-0.5 text-[calc(11px*var(--ts,1))] font-bold text-slate-800 text-center" placeholder="Room">
                                     ` : `<span class="font-bold text-slate-800">${orMissing(p.room)}</span>`}
                                 </div>
                                 <div class="bg-white/70 px-2 py-1 rounded-lg border border-slate-200/60 flex items-center justify-center min-w-[2.5rem] text-center" title="Bed">
                                     ${isEditingMode ? `
-                                        <input type="text" value="${esc(p.bed || '')}" onchange="updatePatientField(${id}, 'bed', this.value)" class="w-10 bg-white border rounded px-0.5 text-[11px] font-bold text-slate-800 text-center" placeholder="Bed">
+                                        <input type="text" value="${esc(p.bed || '')}" onchange="updatePatientField(${id}, 'bed', this.value)" class="w-10 bg-white border rounded px-0.5 text-[calc(11px*var(--ts,1))] font-bold text-slate-800 text-center" placeholder="Bed">
                                     ` : `<span class="font-bold text-slate-800">${orMissing(p.bed)}</span>`}
                                 </div>
                                 <div class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 shadow-xs flex items-center gap-1.5 font-bold" title="${cfg.physLabel}">
-                                    <span class="text-[9px] uppercase font-semibold opacity-75">${isConsult ? 'Team' : 'Dr'}</span>
+                                    <span class="text-[calc(9px*var(--ts,1))] uppercase font-semibold opacity-75">${isConsult ? 'Team' : 'Dr'}</span>
                                     ${isEditingMode ? `
-                                        <input type="text" value="${esc(p.physician || '')}" onchange="onPhysicianNameChanged(${id}, this.value)" class="w-24 bg-white/90 border rounded px-1 text-[11px] font-bold text-slate-800" placeholder="${cfg.physPlaceholder}">
+                                        <input type="text" value="${esc(p.physician || '')}" onchange="onPhysicianNameChanged(${id}, this.value)" class="w-24 bg-white/90 border rounded px-1 text-[calc(11px*var(--ts,1))] font-bold text-slate-800" placeholder="${cfg.physPlaceholder}">
                                     ` : `<span>${orMissing(p.physician)}</span>`}
                                 </div>
                                 ${isConsult ? `
                                 <div class="px-2.5 py-1 rounded-lg border border-slate-200 bg-slate-100 text-slate-700 shadow-xs flex items-center gap-1.5 font-bold" title="Physician">
-                                    <span class="text-[9px] uppercase font-semibold opacity-75">Dr</span>
+                                    <span class="text-[calc(9px*var(--ts,1))] uppercase font-semibold opacity-75">Dr</span>
                                     ${isEditingMode ? `
-                                        <input type="text" value="${esc(p.consultant || '')}" onchange="onConsultantNameChanged(${id}, this.value)" class="w-24 bg-white/90 border rounded px-1 text-[11px] font-bold text-slate-800" placeholder="Physician">
+                                        <input type="text" value="${esc(p.consultant || '')}" onchange="onConsultantNameChanged(${id}, this.value)" class="w-24 bg-white/90 border rounded px-1 text-[calc(11px*var(--ts,1))] font-bold text-slate-800" placeholder="Physician">
                                     ` : `<span>${orMissing(p.consultant)}</span>`}
                                 </div>` : ''}
                                 <div class="px-2.5 py-1 rounded-lg border shadow-xs flex items-center font-bold" style="background-color: ${esc(gocBg)}; color: ${esc(gocColor)}" title="Goals of care">
                                     ${isEditingMode ? `
-                                        <select onchange="updatePatientField(${id}, 'goalsOfCare', this.value); renderApp()" class="bg-white/90 border rounded px-1 text-[11px] font-bold text-slate-800">
+                                        <select onchange="updatePatientField(${id}, 'goalsOfCare', this.value); renderApp()" class="bg-white/90 border rounded px-1 text-[calc(11px*var(--ts,1))] font-bold text-slate-800">
                                             <option value="" ${!p.goalsOfCare ? 'selected' : ''}>-</option>
                                             ${settings.goalsOfCare.map(g => `<option value="${esc(g.name)}" ${p.goalsOfCare === g.name ? 'selected' : ''}>${esc(g.name)}</option>`).join('')}
                                         </select>
@@ -1885,7 +1961,7 @@
                                 </div>` : '') : `
                             <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start">
                                 <div class="md:col-span-8 bg-white/60 p-2.5 rounded-xl border border-slate-200/70 text-xs space-y-1">
-                                    <span class="font-bold text-slate-500 block uppercase tracking-wider text-[10px]">${cfg.issuesLabel}</span>
+                                    <span class="font-bold text-slate-500 block uppercase tracking-wider text-[calc(10px*var(--ts,1))]">${cfg.issuesLabel}</span>
                                     ${!note ? '<p class="text-slate-400 italic">No notes for this day yet</p>' : (todayIssues.length === 0 ? `<p class="text-slate-400 italic">${cfg.issuesEmpty}</p>` : '')}
                                     ${todayIssues.map(ai => `
                                         <div class="font-semibold text-slate-800 bg-white px-2 py-1 rounded-lg border border-slate-200/80">• ${esc(ai.issue || 'Untitled')}</div>
@@ -1926,7 +2002,7 @@
                             <div data-editing class="flex items-center p-2 rounded-xl bg-white border-2 ${T.edit} gap-2">
                                 <input type="text" value="${esc(item.text || '')}" oninput="updatePostDcTextLive(${idx}, this.value)" data-enter="done" class="text-sm flex-1 min-w-0 bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-800" placeholder="Follow-up task...">
                                 <button onclick="deletePostDcItem(${idx})" class="text-slate-400 hover:text-rose-600 px-1.5" title="Delete"><i class="fa-solid fa-trash text-xs"></i></button>
-                                <button onclick="stopEditing()" class="px-3 py-1 ${T.btn} text-white rounded-lg text-[11px] font-semibold">Done</button>
+                                <button onclick="stopEditing()" class="px-3 py-1 ${T.btn} text-white rounded-lg text-[calc(11px*var(--ts,1))] font-semibold">Done</button>
                             </div>
                         ` : `
                             <div class="flex items-center rounded-xl bg-slate-50 border border-slate-200/80 overflow-hidden">
@@ -1991,32 +2067,32 @@
                     <div>
                         <div class="flex items-center justify-between gap-2 mb-1">
                             <h3 class="font-bold text-slate-800 text-sm truncate">${esc(p.name)}</h3>
-                            <span class="shrink-0 text-[11px] bg-maroon-50 text-maroon-700 font-semibold px-2 py-0.5 rounded-md">MRN: ${esc(p.mrn || '-')}</span>
+                            <span class="shrink-0 text-[calc(11px*var(--ts,1))] bg-maroon-50 text-maroon-700 font-semibold px-2 py-0.5 rounded-md">MRN: ${esc(p.mrn || '-')}</span>
                         </div>
-                        <p class="text-xs font-semibold text-slate-600">${esc(ageText({ ...info, dob: p.dob }, todayStr()) || '-')} <span class="text-slate-300 mx-1">|</span> <span class="px-1.5 py-0.5 rounded font-bold text-[11px] ${p.gender === 'F' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}">${esc(p.gender || 'M')}</span> <span class="text-slate-300 mx-1">|</span> ${esc(info.goalsOfCare || '-')}</p>
+                        <p class="text-xs font-semibold text-slate-600">${esc(ageText({ ...info, dob: p.dob }, todayStr()) || '-')} <span class="text-slate-300 mx-1">|</span> <span class="px-1.5 py-0.5 rounded font-bold text-[calc(11px*var(--ts,1))] ${p.gender === 'F' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}">${esc(p.gender || 'M')}</span> <span class="text-slate-300 mx-1">|</span> ${esc(info.goalsOfCare || '-')}</p>
                         ${info.medicalBackground.length > 0 && !hide ? `
-                            <div class="mt-2 space-y-1 text-[11px]">
+                            <div class="mt-2 space-y-1 text-[calc(11px*var(--ts,1))]">
                                 ${info.medicalBackground.map(mb => `
                                     <div class="px-2 py-1 rounded-md flex items-start gap-1.5 ${mb.starred ? 'bg-yellow-100 border border-yellow-300 text-slate-800 font-semibold' : 'bg-slate-50 text-slate-600'}">
-                                        ${mb.starred ? '<i class="fa-solid fa-star text-yellow-500 text-[10px] mt-0.5"></i>' : '<span class="text-slate-300">•</span>'}
+                                        ${mb.starred ? '<i class="fa-solid fa-star text-yellow-500 text-[calc(10px*var(--ts,1))] mt-0.5"></i>' : '<span class="text-slate-300">•</span>'}
                                         <span class="min-w-0 break-words">${esc(mb.condition)}${mb.treatment ? `<span class="font-normal text-slate-500">: ${esc(mb.treatment)}</span>` : ''}</span>
                                     </div>
                                 `).join('')}
                             </div>
                         ` : ''}
                         <div class="mt-1.5 ${hide ? 'hidden' : ''}">
-                            ${renderEmrMemoBox(p, true, false) || `<button onclick="openEmrMemoModal(${jsArg(p.id)})" class="text-[11px] font-semibold text-pink-600 hover:text-pink-800"><i class="fa-solid fa-plus"></i> EMR memo</button>`}
+                            ${renderEmrMemoBox(p, true, false) || `<button onclick="openEmrMemoModal(${jsArg(p.id)})" class="text-[calc(11px*var(--ts,1))] font-semibold text-pink-600 hover:text-pink-800"><i class="fa-solid fa-plus"></i> EMR memo</button>`}
                         </div>
                     </div>
                     <div class="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-100 flex-wrap">
                         <div class="flex items-center gap-1.5">
-                            <span class="text-[11px] font-semibold text-slate-500">Copy to:</span>
-                            <button onclick="copyPatientToList(${jsArg(p.id)}, 'inpatient')" class="px-2 py-1 bg-orange-50 text-orange-600 hover:bg-orange-100 border border-orange-200 rounded-lg text-[11px] font-semibold transition" title="Add to today's inpatient list">Inpt</button>
-                            <button onclick="copyPatientToList(${jsArg(p.id)}, 'consult')" class="px-2 py-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-[11px] font-semibold transition" title="Add to today's consult list">Cnslt</button>
+                            <span class="text-[calc(11px*var(--ts,1))] font-semibold text-slate-500">Copy to:</span>
+                            <button onclick="copyPatientToList(${jsArg(p.id)}, 'inpatient')" class="px-2 py-1 bg-orange-50 text-orange-600 hover:bg-orange-100 border border-orange-200 rounded-lg text-[calc(11px*var(--ts,1))] font-semibold transition" title="Add to today's inpatient list">Inpt</button>
+                            <button onclick="copyPatientToList(${jsArg(p.id)}, 'consult')" class="px-2 py-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 rounded-lg text-[calc(11px*var(--ts,1))] font-semibold transition" title="Add to today's consult list">Cnslt</button>
                         </div>
                         <div class="flex items-center gap-1.5">
-                            <button onclick="router.navigate('patient_profile', { patientId: ${jsArg(p.id)} })" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-medium transition">View Record</button>
-                            <button onclick="openDeletePatientModal(${jsArg(p.id)})" class="px-2 py-1 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg text-[11px] font-medium transition" title="Delete Patient"><i class="fa-solid fa-trash"></i></button>
+                            <button onclick="router.navigate('patient_profile', { patientId: ${jsArg(p.id)} })" class="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[calc(11px*var(--ts,1))] font-medium transition">View Record</button>
+                            <button onclick="openDeletePatientModal(${jsArg(p.id)})" class="px-2 py-1 bg-rose-50 text-rose-600 hover:bg-rose-100 rounded-lg text-[calc(11px*var(--ts,1))] font-medium transition" title="Delete Patient"><i class="fa-solid fa-trash"></i></button>
                         </div>
                     </div>
                 </div>
@@ -2128,33 +2204,27 @@
             return `
                 <div class="flex-1 flex flex-col space-y-4">
                     <div class="flex justify-center -mt-2 sm:-mt-3 -mb-2">
-                        <button onclick="setRecordCollapsed(${anyOpen})" class="px-3 py-1 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-[11px] font-semibold shadow-xs flex items-center gap-1.5 transition">
+                        <button onclick="setRecordCollapsed(${anyOpen})" class="px-3 py-1 rounded-full bg-white border border-slate-200 text-slate-500 hover:text-slate-800 hover:bg-slate-100 text-[calc(11px*var(--ts,1))] font-semibold shadow-xs flex items-center gap-1.5 transition">
                             <i class="fa-solid fa-${anyOpen ? 'down-left-and-up-right-to-center' : 'up-right-and-down-left-from-center'}"></i> ${anyOpen ? 'Collapse all' : 'Expand all'}
                         </button>
                     </div>
                     <!-- STICKY TOP BAR: name, tags, MRN, entry navigation, daily care -->
-                    <div class="sm:sticky sm:top-0 z-30 bg-slate-50/95 backdrop-blur-md pb-2 sm:pb-3 shadow-sm">
-                        <div class="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col lg:flex-row items-center lg:justify-between gap-2 sm:gap-3">
-                            <div class="flex items-center justify-center lg:justify-start gap-2 flex-wrap w-full lg:w-auto">
+                    <div class="rec-sticky sm:sticky sm:top-0 z-30 bg-slate-50/95 backdrop-blur-md pb-2 sm:pb-3 shadow-sm">
+                        <div class="rec-head-box rec-head bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
+                            <div class="rh-name flex items-center justify-center gap-2 flex-wrap">
                                 ${entryTypeBadge(currentEntryType)}
                                 ${renderHeaderName(patient, pid)}
                                 ${renderHeaderTags(patient, settings, pid)}
                                 ${renderHeaderMrn(patient, pid)}
                             </div>
-
-                            <div class="flex items-center justify-center gap-2 sm:gap-3 flex-wrap">
-                            <div class="flex flex-col items-center gap-0.5">
-                                <div class="flex items-center gap-1.5">
-                                    <button ${prevEntry ? `onclick="goToNoteDate(${jsArg(prevEntry)})"` : 'disabled'} class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center transition ${prevEntry ? 'hover:bg-slate-200 text-slate-600' : 'text-slate-300 cursor-not-allowed'}" title="Previous entry"><i class="fa-solid fa-chevron-left"></i></button>
-                                    <select onchange="goToNoteDate(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-semibold text-slate-700 text-[13px] focus:outline-none focus:ring-2 focus:ring-indigo-500" title="Days this patient is on a list">
-                                        ${entryDates.slice().reverse().map(d => `<option value="${esc(d)}" ${d === currentViewDate ? 'selected' : ''}>${esc(fmtDate(d))}</option>`).join('')}
-                                    </select>
-                                    <button ${nextEntry ? `onclick="goToNoteDate(${jsArg(nextEntry)})"` : 'disabled'} class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center transition ${nextEntry ? 'hover:bg-slate-200 text-slate-600' : 'text-slate-300 cursor-not-allowed'}" title="Next entry"><i class="fa-solid fa-chevron-right"></i></button>
-                                </div>
+                            <div class="rh-nav flex items-center gap-1.5">
+                                <button ${prevEntry ? `onclick="goToNoteDate(${jsArg(prevEntry)})"` : 'disabled'} class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center transition ${prevEntry ? 'hover:bg-slate-200 text-slate-600' : 'text-slate-300 cursor-not-allowed'}" title="Previous entry"><i class="fa-solid fa-chevron-left"></i></button>
+                                <select onchange="goToNoteDate(this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-semibold text-slate-700 text-[calc(13px*var(--ts,1))] focus:outline-none focus:ring-2 focus:ring-indigo-500" title="Days this patient is on a list">
+                                    ${entryDates.slice().reverse().map(d => `<option value="${esc(d)}" ${d === currentViewDate ? 'selected' : ''}>${esc(fmtDate(d))}</option>`).join('')}
+                                </select>
+                                <button ${nextEntry ? `onclick="goToNoteDate(${jsArg(nextEntry)})"` : 'disabled'} class="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center transition ${nextEntry ? 'hover:bg-slate-200 text-slate-600' : 'text-slate-300 cursor-not-allowed'}" title="Next entry"><i class="fa-solid fa-chevron-right"></i></button>
                             </div>
-
-                            ${renderCareBox(flags, pid, isConsult)}
-                            </div>
+                            <div class="rh-care">${renderCareBox(flags, pid, isConsult)}</div>
                         </div>
                     </div>
 
@@ -2195,12 +2265,12 @@
         // Daily Care (green, like the Plan box). Inpatients: Vitals / Labs / Plan. Consults: Review / Plan.
         function renderCareBox(flags, pid, isConsult) {
             const btn = (flag, icon, label) => `
-                <button onclick="toggleCareFlag(${pid}, '${flag}')" class="px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[10.5px] sm:text-xs font-bold transition flex items-center gap-1 ${flags[flag] ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-100'}">
+                <button onclick="toggleCareFlag(${pid}, '${flag}')" class="px-1.5 sm:px-3 py-1 sm:py-1.5 rounded-lg text-[calc(10.5px*var(--ts,1))] sm:text-xs font-bold transition flex items-center gap-1 ${flags[flag] ? 'bg-emerald-600 text-white shadow-sm' : 'bg-white text-emerald-800 border border-emerald-200 hover:bg-emerald-100'}">
                     <i class="fa-solid ${icon}"></i> ${label}
                 </button>`;
             return `
                 <div class="bg-emerald-50 border-2 border-emerald-300 p-1 sm:p-1.5 rounded-xl flex items-center gap-1 sm:gap-1.5 shadow-xs">
-                    <span class="hidden sm:inline text-[10px] font-bold text-emerald-800 uppercase tracking-wider px-1">DAILY CARE</span>
+                    <span class="care-label hidden sm:inline text-[calc(10px*var(--ts,1))] font-bold text-emerald-800 uppercase tracking-wider px-1">DAILY CARE</span>
                     ${isConsult
                         ? btn('reviewDone', 'fa-magnifying-glass', 'Review') + btn('planDone', 'fa-clipboard-list', 'Plan')
                         : btn('vitalsDone', 'fa-heart-pulse', 'Vitals') + btn('labsDone', 'fa-flask', 'Labs') + btn('planDone', 'fa-clipboard-list', 'Plan')}
@@ -2266,9 +2336,9 @@
         // Header pieces of the record: name, tags and MRN, each tappable.
         function renderHeaderName(patient, pid) {
             if (editingTile === 'name') {
-                return `<span data-tile-editing><input data-tile-input type="text" value="${esc(patient.name)}" onblur="commitTile(${pid}, 'name', this.value)" class="font-extrabold text-slate-900 text-[24px] bg-white border-2 border-indigo-300 rounded-lg px-2 py-0.5 w-56"></span>`;
+                return `<span data-tile-editing><input data-tile-input type="text" value="${esc(patient.name)}" onblur="commitTile(${pid}, 'name', this.value)" class="font-extrabold text-slate-900 text-[calc(24px*var(--ts,1))] bg-white border-2 border-indigo-300 rounded-lg px-2 py-0.5 w-56"></span>`;
             }
-            return `<span data-tile-trigger onclick="openDetailsEditor(null, 'name')" class="font-extrabold text-slate-900 text-[20px] sm:text-[26px] cursor-pointer hover:text-indigo-600" title="Tap to edit">${esc(patient.name)}</span>`;
+            return `<span data-tile-trigger onclick="openDetailsEditor(null, 'name')" class="font-extrabold text-slate-900 text-[calc(20px*var(--ts,1))] sm:text-[calc(26px*var(--ts,1))] cursor-pointer hover:text-indigo-600" title="Tap to edit">${esc(patient.name)}</span>`;
         }
         function renderHeaderMrn(patient, pid) {
             if (editingTile === 'mrn') {
@@ -2292,7 +2362,7 @@
                             ${settings.tags.map(t => `
                                 <label class="flex items-center gap-2 p-1.5 hover:bg-slate-50 rounded cursor-pointer text-xs">
                                     <input type="checkbox" ${pTags.includes(t.name) ? 'checked' : ''} onchange="togglePatientTag(${pid}, ${jsArg(t.name)})" class="rounded text-indigo-600">
-                                    <span class="px-2 py-0.5 rounded text-[11px] font-semibold" style="background-color: ${esc(t.color)}; color: ${esc(t.fontColor)}">${esc(t.name)}</span>
+                                    <span class="px-2 py-0.5 rounded text-[calc(11px*var(--ts,1))] font-semibold" style="background-color: ${esc(t.color)}; color: ${esc(t.fontColor)}">${esc(t.name)}</span>
                                 </label>
                             `).join('')}
                         </div>
@@ -2309,16 +2379,16 @@
             const cfg = isConsult ? LIST_CFG.consult : LIST_CFG.inpatient;
             const missing = missingDetails(patient, isConsult);
             const firstText = missingFields(patient, isConsult).find(f => TEXT_TILES.includes(f));
-            const V = 'text-[13px] sm:text-[16px] font-bold leading-tight break-words';
+            const V = 'text-[calc(13px*var(--ts,1))] sm:text-[calc(16px*var(--ts,1))] font-bold leading-tight break-words';
             const box = (inner, { style = '', cls = 'bg-slate-50', extra = '' } = {}) => `
                 <div class="${cls} relative px-1 py-1.5 sm:p-2.5 rounded-xl border border-slate-200/60 shadow-xs flex flex-col justify-center items-center min-w-0 ${extra}" ${style ? `style="${style}"` : ''}>${inner}</div>`;
-            const label = (t, cls = 'text-slate-500') => `<span class="block mb-0.5 text-[8.5px] sm:text-[12px] font-semibold leading-tight whitespace-nowrap ${cls}">${t}</span>`;
+            const label = (t, cls = 'text-slate-500') => `<span class="block mb-0.5 text-[calc(8.5px*var(--ts,1))] sm:text-[calc(12px*var(--ts,1))] font-semibold leading-tight whitespace-nowrap ${cls}">${t}</span>`;
             // Text boxes: tap to turn just this box into an input.
             const textBox = (field, title, display, opts = {}) => {
                 const inputType = field === 'age' ? 'number' : 'text';
                 if (editingTile === field) {
                     return box(`${label(title, opts.labelCls)}
-                        <input data-tile-input type="${inputType}" ${field === 'ward' ? 'list="ward-options"' : ''} value="${esc(patient[field] || '')}" onblur="commitTile(${pid}, '${field}', this.value)" class="w-full bg-white border-2 border-indigo-300 rounded-lg px-1 py-0.5 text-[13px] sm:text-sm font-bold text-slate-800 text-center focus:outline-none" placeholder="${esc(title)}">`,
+                        <input data-tile-input type="${inputType}" ${field === 'ward' ? 'list="ward-options"' : ''} value="${esc(patient[field] || '')}" onblur="commitTile(${pid}, '${field}', this.value)" class="w-full bg-white border-2 border-indigo-300 rounded-lg px-1 py-0.5 text-[calc(13px*var(--ts,1))] sm:text-sm font-bold text-slate-800 text-center focus:outline-none" placeholder="${esc(title)}">`,
                         { ...opts, extra: 'ring-2 ring-indigo-300' }).replace('<div class="', '<div data-tile-editing class="');
                 }
                 return box(`${label(title, opts.labelCls)}${display}`, { ...opts, extra: 'cursor-pointer hover:ring-2 hover:ring-indigo-200 transition' })
@@ -2335,7 +2405,7 @@
             const dateBox = (field, title, displayHtml, opts = {}) => {
                 if (editingTile === field) {
                     return box(`${label(title, opts.labelCls)}
-                        ${dateField(patient[field] || '', `editingTile = null; setDetailNow(${pid}, '${field}', this.value)`, { cls: 'w-full justify-center bg-white border-2 border-indigo-300 rounded-lg px-1 py-0.5 text-[13px] sm:text-sm font-bold text-slate-800', textAttrs: 'data-tile-input' })}`,
+                        ${dateField(patient[field] || '', `editingTile = null; setDetailNow(${pid}, '${field}', this.value)`, { cls: 'w-full justify-center bg-white border-2 border-indigo-300 rounded-lg px-1 py-0.5 text-[calc(13px*var(--ts,1))] sm:text-sm font-bold text-slate-800', textAttrs: 'data-tile-input' })}`,
                         { ...opts, extra: 'ring-2 ring-indigo-300 col-span-2 lg:col-span-1' }).replace('<div class="', '<div data-tile-editing class="');
                 }
                 return box(`${label(title, opts.labelCls)}${displayHtml}`, { ...opts, extra: `cursor-pointer hover:ring-2 hover:ring-indigo-200 transition ${opts.extra || ''}` })
@@ -2344,10 +2414,10 @@
             const ageBox = dateBox('dob', 'Age', `
                 <span class="${V} text-slate-800" title="${patient.dob ? 'DOB ' + esc(fmtDate(patient.dob)) : 'Tap to set date of birth'}">${ageText(patient, currentViewDate) ? esc(ageText(patient, currentViewDate)) : ''}${patient.dob ? '' : ' ' + MISSING_MARK}</span>`);
             const admittedBox = dateBox('admissionDate', 'Admitted on', `
-                <span class="text-[12px] sm:text-[15px] font-bold text-slate-800 leading-tight">${patient.admissionDate ? esc(fmtDate(patient.admissionDate)) : (isConsult ? '—' : MISSING_MARK)}</span>
-                <span class="text-[10px] sm:text-[12px] font-bold ${isConsult ? 'text-indigo-600' : 'text-orange-600'} leading-tight">${patient.admissionDate ? `Day ${c.diffDays}` : ''}</span>`);
+                <span class="text-[calc(12px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] font-bold text-slate-800 leading-tight">${patient.admissionDate ? esc(fmtDate(patient.admissionDate)) : (isConsult ? '—' : MISSING_MARK)}</span>
+                <span class="text-[calc(10px*var(--ts,1))] sm:text-[calc(12px*var(--ts,1))] font-bold ${isConsult ? 'text-indigo-600' : 'text-orange-600'} leading-tight">${patient.admissionDate ? `Day ${c.diffDays}` : ''}</span>`);
             const consultBox = isConsult ? dateBox('consultDate', 'Consult date', `
-                <span class="text-[12px] sm:text-[15px] font-bold text-indigo-800 leading-tight">${patient.consultDate ? esc(fmtDate(patient.consultDate)) : MISSING_MARK}</span>`,
+                <span class="text-[calc(12px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] font-bold text-indigo-800 leading-tight">${patient.consultDate ? esc(fmtDate(patient.consultDate)) : MISSING_MARK}</span>`,
                 { cls: 'bg-indigo-50', labelCls: 'text-indigo-600' }) : '';
 
             return `
@@ -2355,8 +2425,8 @@
                     ${wardDatalist()}
                     ${missing.length ? `
                         <div class="mb-2 sm:mb-3">
-                            <button data-tile-trigger onclick="${firstText ? `openDetailsEditor(null, '${firstText}')` : ''}" class="px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[11px] sm:text-xs font-semibold hover:bg-rose-100 flex items-center gap-2 text-left">
-                                <span class="inline-flex shrink-0 items-center justify-center w-4 h-4 rounded-full bg-rose-500 text-white text-[10px] font-black">!</span>
+                            <button data-tile-trigger onclick="${firstText ? `openDetailsEditor(null, '${firstText}')` : ''}" class="px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[calc(11px*var(--ts,1))] sm:text-xs font-semibold hover:bg-rose-100 flex items-center gap-2 text-left">
+                                <span class="inline-flex shrink-0 items-center justify-center w-4 h-4 rounded-full bg-rose-500 text-white text-[calc(10px*var(--ts,1))] font-black">!</span>
                                 Please fill in: ${esc(missing.join(', '))}
                             </button>
                         </div>
@@ -2366,7 +2436,7 @@
                         ${textBox('room', 'Room', `<span class="${V} text-slate-800">${orMissing(patient.room)}</span>`)}
                         ${textBox('bed', 'Bed', `<span class="${V} text-slate-800">${orMissing(patient.bed)}</span>`)}
                         ${ageBox}
-                        ${selectBox('gender', 'Gender', `<span class="px-2 py-0.5 rounded text-[13px] sm:text-[15px] font-bold ${c.genderBg}">${esc(patient.gender || 'M')}</span>`, ['M', 'F'])}
+                        ${selectBox('gender', 'Gender', `<span class="px-2 py-0.5 rounded text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] font-bold ${c.genderBg}">${esc(patient.gender || 'M')}</span>`, ['M', 'F'])}
                         ${admittedBox}
                         ${consultBox}
                         ${selectBox('goalsOfCare', 'Goals of Care', `<span class="${V}">${orMissing(patient.goalsOfCare)}</span>`, settings.goalsOfCare.map(g => g.name), { cls: '', style: `background-color: ${esc(c.gocBg)}; color: ${esc(c.gocColor)}`, labelCls: 'opacity-75' })}
@@ -2403,37 +2473,37 @@
                 <div class="size-scale bg-white p-2.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div class="flex items-center justify-between gap-2 flex-wrap ${isMedicalBgCollapsed ? '' : 'mb-3'}">
                         <div class="flex items-center space-x-2 cursor-pointer" onclick="toggleMedicalBackgroundCollapse()">
-                            <h3 class="font-bold text-slate-800 text-[13px] sm:text-sm">Medical Background</h3>
-                            <span class="text-[11px] text-slate-400 font-semibold">(${list.length})</span>
+                            <h3 class="font-bold text-slate-800 text-[calc(13px*var(--ts,1))] sm:text-sm">Medical Background</h3>
+                            <span class="text-[calc(11px*var(--ts,1))] text-slate-400 font-semibold">(${list.length})</span>
                             <i class="fa-solid fa-chevron-${isMedicalBgCollapsed ? 'down' : 'up'} text-xs text-slate-400"></i>
                         </div>
                         <div class="flex items-center gap-3">
-                            <span class="hidden sm:inline text-[11px] text-slate-400"><i class="fa-solid fa-circle-info"></i> Changes are applied here and forward only</span>
+                            <span class="hidden sm:inline text-[calc(11px*var(--ts,1))] text-slate-400"><i class="fa-solid fa-circle-info"></i> Changes are applied here and forward only</span>
                         <button data-edit-trigger onclick="addMedicalBackground(${pid})" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
                         </div>
                     </div>
                     <div class="${isMedicalBgCollapsed ? 'hidden' : ''}">
-                        ${list.length === 0 ? '<p class="text-[11px] sm:text-xs text-slate-400 italic">No medical background recorded.</p>' : ''}
+                        ${list.length === 0 ? '<p class="text-[calc(11px*var(--ts,1))] sm:text-xs text-slate-400 italic">No medical background recorded.</p>' : ''}
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" data-sort-list="medbg" data-patient-id="${esc(patient.id)}">
                             ${list.map((mb, idx) => isEditingItem('medbg', idx, patient.id) ? `
                                 <div data-sort-item data-id="${esc(mb.id || '')}" data-editing class="flex rounded-xl border-2 border-indigo-300 ${mb.starred ? 'bg-yellow-50' : 'bg-white'} overflow-hidden">
                                     ${gripHandle('rounded-r-lg', mb.starred ? 'bg-yellow-200 text-yellow-600' : 'bg-indigo-50 text-indigo-300')}
                                     <div class="flex-1 min-w-0 p-2.5 space-y-1.5">
-                                        <textarea rows="1" oninput="autoGrow(this); updateMedicalBackgroundLive(${pid}, ${idx}, 'condition', this.value)" data-enter="done" class="auto-grow resize-none w-full font-semibold text-slate-800 text-[11px] sm:text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5" placeholder="Condition">${esc(mb.condition || '')}</textarea>
-                                        <textarea rows="1" oninput="autoGrow(this); updateMedicalBackgroundLive(${pid}, ${idx}, 'treatment', this.value)" data-enter="done" class="auto-grow resize-none w-full text-slate-600 text-[11px] sm:text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5" placeholder="Medications / Treatment">${esc(mb.treatment || '')}</textarea>
+                                        <textarea rows="1" oninput="autoGrow(this); updateMedicalBackgroundLive(${pid}, ${idx}, 'condition', this.value)" data-enter="done" class="auto-grow resize-none w-full font-semibold text-slate-800 text-[calc(11px*var(--ts,1))] sm:text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5" placeholder="Condition">${esc(mb.condition || '')}</textarea>
+                                        <textarea rows="1" oninput="autoGrow(this); updateMedicalBackgroundLive(${pid}, ${idx}, 'treatment', this.value)" data-enter="done" class="auto-grow resize-none w-full text-slate-600 text-[calc(11px*var(--ts,1))] sm:text-xs bg-white border border-slate-300 rounded-lg px-2 py-1.5" placeholder="Medications / Treatment">${esc(mb.treatment || '')}</textarea>
                                         <div class="flex items-center justify-between pt-0.5">
                                             <div class="flex items-center gap-2">
-                                                <button onclick="deleteMedicalBackground(${pid}, ${idx})" class="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[11px] font-semibold"><i class="fa-solid fa-trash"></i> Delete</button>
+                                                <button onclick="deleteMedicalBackground(${pid}, ${idx})" class="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[calc(11px*var(--ts,1))] font-semibold"><i class="fa-solid fa-trash"></i> Delete</button>
                                                 <button onclick="toggleMedBgStar(${pid}, ${idx})" class="w-7 h-7 rounded-full flex items-center justify-center transition ${mb.starred ? 'bg-yellow-300 text-yellow-800' : 'bg-slate-100 text-slate-400 hover:bg-yellow-100 hover:text-yellow-600'}" title="${mb.starred ? 'Remove highlight' : 'Highlight as important'}"><i class="fa-${mb.starred ? 'solid' : 'regular'} fa-star text-xs"></i></button>
                                             </div>
-                                            <button onclick="stopEditing()" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[11px] font-semibold">Done</button>
+                                            <button onclick="stopEditing()" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-[calc(11px*var(--ts,1))] font-semibold">Done</button>
                                         </div>
                                     </div>
                                 </div>
                             ` : `
                                 <div data-sort-item data-id="${esc(mb.id || '')}" class="flex rounded-xl border overflow-hidden ${mb.starred ? 'bg-yellow-100 border-yellow-300' : 'bg-slate-50 border-slate-200/80'}">
                                     ${gripHandle('rounded-r-lg', mb.starred ? 'bg-yellow-200 text-yellow-600' : 'bg-slate-200/70 text-slate-400')}
-                                    <div data-edit-trigger onclick="startEditing('medbg', ${idx})" class="${mb.starred ? 'cursor-text hover:bg-yellow-50' : 'edit-trigger'} flex-1 min-w-0 p-2.5 sm:p-3 text-[11px] sm:text-xs" title="Click to edit">
+                                    <div data-edit-trigger onclick="startEditing('medbg', ${idx})" class="${mb.starred ? 'cursor-text hover:bg-yellow-50' : 'edit-trigger'} flex-1 min-w-0 p-2.5 sm:p-3 text-[calc(11px*var(--ts,1))] sm:text-xs" title="Click to edit">
                                         <div class="font-semibold text-slate-800 break-words">${esc(mb.condition) || '<span class="text-slate-400 italic font-normal">Condition</span>'}</div>
                                         ${mb.treatment ? `<div class="text-slate-600 mt-0.5 break-words">${esc(mb.treatment)}</div>` : ''}
                                     </div>
@@ -2491,13 +2561,13 @@
                     <div class="bg-white rounded-3xl p-5 max-w-xs w-full shadow-2xl space-y-4">
                         <h3 class="text-base font-bold text-slate-800">${esc(courseStrip(trt.text) ? trt.text.replace(COURSE_RE, '').trim() : 'Course')}</h3>
                         <div class="flex items-end gap-2">
-                            <label class="flex-1"><span class="block text-[11px] text-slate-500 mb-1">Day</span>
+                            <label class="flex-1"><span class="block text-[calc(11px*var(--ts,1))] text-slate-500 mb-1">Day</span>
                                 <input id="course-day" type="number" min="1" inputmode="numeric" value="${c.day}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold text-center"></label>
                             <span class="pb-2 text-xl font-bold text-slate-400">/</span>
-                            <label class="flex-1"><span class="block text-[11px] text-slate-500 mb-1">Total days</span>
+                            <label class="flex-1"><span class="block text-[calc(11px*var(--ts,1))] text-slate-500 mb-1">Total days</span>
                                 <input id="course-total" type="number" min="1" inputmode="numeric" value="${c.total}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-lg font-bold text-center"></label>
                         </div>
-                        <p class="text-[11px] text-slate-400">Also updates this treatment on later days.</p>
+                        <p class="text-[calc(11px*var(--ts,1))] text-slate-400">Also updates this treatment on later days.</p>
                         <div class="flex justify-end gap-2">
                             <button onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
                             <button onclick="saveCourse(${jsArg(patientId)}, ${issueIdx}, ${trtIdx})" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium">Save</button>
@@ -2558,16 +2628,16 @@
             return `
                 <div class="size-scale ${A.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
                     <div class="flex items-center justify-between mb-2 sm:mb-3">
-                        <h3 class="font-bold ${A.title} text-[14px] sm:text-[17px] flex items-center gap-2"><i class="fa-solid ${A.icon} ${A.iconCls}"></i> ${L.title}</h3>
+                        <h3 class="font-bold ${A.title} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${A.icon} ${A.iconCls}"></i> ${L.title}</h3>
                         <button data-edit-trigger onclick="addActiveIssue(${pid})" class="px-2.5 sm:px-3 py-1 sm:py-1.5 ${A.btn} text-white rounded-lg sm:rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
                     </div>
-                    ${issues.length === 0 ? `<div class="p-3 text-center text-slate-400 italic text-[13px] sm:text-sm">${L.empty}</div>` : ''}
+                    ${issues.length === 0 ? `<div class="p-3 text-center text-slate-400 italic text-[calc(13px*var(--ts,1))] sm:text-sm">${L.empty}</div>` : ''}
                     <div class="space-y-2 sm:space-y-3" data-sort-list="issues" data-patient-id="${esc(patientId)}">
                         ${issues.map((issue, i) => isEditingItem('issue', i, patientId) ? `
                             <div data-sort-item data-id="${esc(issue.id || '')}" data-editing class="relative z-10 flex rounded-xl sm:rounded-2xl border-2 ${A.edit} bg-white">
                                 ${gripHandle('rounded-r-xl', A.grip)}
                                 <div class="flex-1 min-w-0 p-2 sm:p-3 space-y-2">
-                                    ${ta(`oninput="autoGrow(this); updateActiveIssueTitleLive(${pid}, ${i}, this.value)" data-enter="done"`, issue.issue, 'font-bold text-slate-900 text-[13px] sm:text-[15px] bg-white border border-slate-300 rounded-lg px-2.5 py-1.5', L.ph)}
+                                    ${ta(`oninput="autoGrow(this); updateActiveIssueTitleLive(${pid}, ${i}, this.value)" data-enter="done"`, issue.issue, 'font-bold text-slate-900 text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] bg-white border border-slate-300 rounded-lg px-2.5 py-1.5', L.ph)}
                                     <div class="space-y-1.5">
                                         ${(issue.treatments || []).map((trt, ti) => {
                                             const code = colorCodeOf(settings, trt.color);
@@ -2575,7 +2645,7 @@
                                             return `
                                             <div class="flex items-start gap-1.5">
                                                 <span class="text-slate-800 text-base leading-none pt-2.5">•</span>
-                                                ${ta(`data-treatment data-enter="add-treatment" oninput="autoGrow(this); updateTreatmentTextLive(${pid}, ${i}, ${ti}, this.value)" style="color: ${code ? esc(code.color) : 'inherit'}"`, trt.text, 'flex-1 min-w-0 text-[13px] sm:text-[15px] border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold bg-white text-slate-800', L.line)}
+                                                ${ta(`data-treatment data-enter="add-treatment" oninput="autoGrow(this); updateTreatmentTextLive(${pid}, ${i}, ${ti}, this.value)" style="color: ${code ? esc(code.color) : 'inherit'}"`, trt.text, 'flex-1 min-w-0 text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] border border-slate-200 rounded-lg px-2.5 py-1.5 font-semibold bg-white text-slate-800', L.line)}
                                                 <div class="relative shrink-0">
                                                     <button onclick="toggleColorMenu(${i}, ${ti})" class="w-9 h-9 rounded-lg border flex items-center justify-center transition ${open ? 'ring-2 ring-indigo-200' : ''}" style="background-color: ${code ? esc(code.color) + '1f' : '#f8fafc'}; border-color: ${code ? esc(code.color) + '55' : '#e2e8f0'}" title="Colour code${code ? ': ' + esc(code.name) : ''}">
                                                         <i class="fa-solid fa-paintbrush" style="color: ${code ? esc(code.color) : '#94a3b8'}"></i>
@@ -2596,12 +2666,12 @@
                                         }).join('')}
                                     </div>
                                     <div class="flex items-center justify-between gap-2 pt-0.5">
-                                        <button onclick="addTreatmentLine(${pid}, ${i})" class="px-2.5 py-1.5 bg-white border ${A.soft} rounded-lg text-[11px] sm:text-xs font-bold flex items-center gap-1.5 transition">
+                                        <button onclick="addTreatmentLine(${pid}, ${i})" class="px-2.5 py-1.5 bg-white border ${A.soft} rounded-lg text-[calc(11px*var(--ts,1))] sm:text-xs font-bold flex items-center gap-1.5 transition">
                                             <i class="fa-solid fa-plus"></i> ${L.addLine}
                                         </button>
                                         <div class="flex items-center gap-2">
-                                            <button onclick="deleteActiveIssue(${pid}, ${i})" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[11px] sm:text-xs font-bold flex items-center gap-1.5"><i class="fa-solid fa-trash"></i> Delete</button>
-                                            <button onclick="stopEditing()" class="px-3.5 py-1.5 ${A.btn} text-white rounded-lg text-[11px] sm:text-xs font-bold">Done</button>
+                                            <button onclick="deleteActiveIssue(${pid}, ${i})" class="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-[calc(11px*var(--ts,1))] sm:text-xs font-bold flex items-center gap-1.5"><i class="fa-solid fa-trash"></i> Delete</button>
+                                            <button onclick="stopEditing()" class="px-3.5 py-1.5 ${A.btn} text-white rounded-lg text-[calc(11px*var(--ts,1))] sm:text-xs font-bold">Done</button>
                                         </div>
                                     </div>
                                 </div>
@@ -2611,18 +2681,18 @@
                                 ${gripHandle('rounded-r-xl', A.grip)}
                                 <div class="flex-1 min-w-0 p-2 sm:p-3 space-y-1.5 sm:space-y-2">
                                     <div class="flex items-center gap-2">
-                                        <div data-edit-trigger onclick="startEditing('issue', ${i})" class="edit-trigger flex-1 min-w-0 font-bold text-slate-900 text-[13px] sm:text-[15px] bg-slate-100 rounded-lg px-2.5 py-1.5 sm:py-2 break-words" title="Click to edit">
+                                        <div data-edit-trigger onclick="startEditing('issue', ${i})" class="edit-trigger flex-1 min-w-0 font-bold text-slate-900 text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] bg-slate-100 rounded-lg px-2.5 py-1.5 sm:py-2 break-words" title="Click to edit">
                                             ${esc(issue.issue) || `<span class="text-slate-400 italic font-medium">${L.untitled}</span>`}
                                         </div>
                                         <button onclick="event.stopPropagation(); toggleActiveIssue(${pid}, ${i})" class="w-7 h-7 sm:w-8 sm:h-8 shrink-0 rounded-lg text-slate-300 hover:text-emerald-600 hover:bg-emerald-50 transition" title="Mark resolved"><i class="fa-regular fa-circle-check text-base"></i></button>
                                     </div>
                                     <div data-edit-trigger onclick="startEditing('issue', ${i}, '@lastTreatment')" class="edit-trigger bg-slate-50 px-2.5 py-2 sm:p-3 rounded-lg sm:rounded-xl border border-slate-200/80 space-y-1" title="Click to edit">
-                                        ${(issue.treatments || []).filter(t => (t.text || '').trim()).length === 0 ? `<span class="text-slate-400 italic text-[13px] sm:text-[15px]">${L.none}</span>` : ''}
+                                        ${(issue.treatments || []).filter(t => (t.text || '').trim()).length === 0 ? `<span class="text-slate-400 italic text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))]">${L.none}</span>` : ''}
                                         ${(issue.treatments || []).map((trt, ti) => {
                                             if (!(trt.text || '').trim()) return '';
                                             const code = colorCodeOf(settings, trt.color);
                                             return `
-                                                <div class="flex items-start gap-1.5 text-[13px] sm:text-[15px] font-semibold">
+                                                <div class="flex items-start gap-1.5 text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] font-semibold">
                                                     <span class="text-slate-800 leading-snug">•</span>
                                                     <span class="break-words min-w-0" style="color: ${code ? esc(code.color) : 'inherit'}">${treatmentHtml(trt.text, `openCourseEditor(${esc(JSON.stringify(patientId))}, ${i}, ${ti})`)}</span>
                                                 </div>`;
@@ -2635,10 +2705,10 @@
 
                     ${note.resolvedIssues && note.resolvedIssues.length > 0 ? `
                         <div class="mt-4 pt-3 border-t border-slate-100">
-                            <h4 class="font-semibold text-slate-400 text-[11px] mb-2 uppercase tracking-wider">Resolved</h4>
+                            <h4 class="font-semibold text-slate-400 text-[calc(11px*var(--ts,1))] mb-2 uppercase tracking-wider">Resolved</h4>
                             <div class="space-y-1.5">
                                 ${note.resolvedIssues.map((ri, idx) => `
-                                    <div class="px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-100 text-slate-400 text-[13px] flex items-center justify-between">
+                                    <div class="px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-100 text-slate-400 text-[calc(13px*var(--ts,1))] flex items-center justify-between">
                                         <label class="flex items-center gap-2.5 cursor-pointer flex-1">
                                             <input type="checkbox" checked onchange="toggleResolvedIssue(${pid}, ${idx})" class="w-4 h-4 text-indigo-600 rounded border-slate-300 cursor-pointer" title="Reactivate issue">
                                             <span class="line-through font-medium">✓ ${esc(ri.issue)}</span>
@@ -2672,10 +2742,10 @@
             const isSignOff = kind === 'plan' && isConsult; // consult entries: "Sign off" sits in the Plan box
             const collapsed = isDc && dcPlanCollapsed;
             const dc = note.discharge;
-            const titleHtml = `<h3 class="font-bold ${K.titleCls} text-[14px] sm:text-[17px] flex items-center gap-2"><i class="fa-solid ${K.icon} ${K.iconCls}"></i> ${K.title}
-                ${isDc ? `<span class="text-[11px] font-semibold opacity-50">(${plan.length})</span><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-xs opacity-50"></i>` : ''}
-                ${isDc && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : 'Discharged'}</span>` : ''}
-                ${isSignOff && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-700 text-white">Signed off</span>` : ''}</h3>`;
+            const titleHtml = `<h3 class="font-bold ${K.titleCls} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${K.icon} ${K.iconCls}"></i> ${K.title}
+                ${isDc ? `<span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${plan.length})</span><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-xs opacity-50"></i>` : ''}
+                ${isDc && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : 'Discharged'}</span>` : ''}
+                ${isSignOff && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-emerald-700 text-white">Signed off</span>` : ''}</h3>`;
             return `
                 <div class="size-scale ${K.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
                     <div class="flex items-center justify-between ${collapsed ? '' : 'mb-2 sm:mb-3'}">
@@ -2692,9 +2762,9 @@
                             <div data-sort-item data-id="${esc(pl.id || '')}" data-editing class="flex items-stretch rounded-xl border-2 ${K.edit} bg-white overflow-hidden">
                                 ${gripHandle('rounded-r-lg', K.grip)}
                                 <div class="flex-1 min-w-0 flex items-center gap-2 p-2">
-                                    <textarea rows="1" oninput="autoGrow(this); updatePlanTextLive(${pid}, ${idx}, this.value, '${kind}')" data-enter="add-plan" class="auto-grow resize-none flex-1 min-w-0 text-[13px] sm:text-[15px] bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-900" placeholder="${K.ph}">${esc(pl.text || '')}</textarea>
+                                    <textarea rows="1" oninput="autoGrow(this); updatePlanTextLive(${pid}, ${idx}, this.value, '${kind}')" data-enter="add-plan" class="auto-grow resize-none flex-1 min-w-0 text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 font-semibold text-slate-900" placeholder="${K.ph}">${esc(pl.text || '')}</textarea>
                                     <button onclick="deletePlanItem(${pid}, ${idx}, '${kind}')" class="text-slate-400 hover:text-rose-600 px-1.5" title="Delete"><i class="fa-solid fa-trash text-xs"></i></button>
-                                    <button onclick="stopEditing()" class="px-3 py-1 ${K.btn} text-white rounded-lg text-[11px] font-semibold">Done</button>
+                                    <button onclick="stopEditing()" class="px-3 py-1 ${K.btn} text-white rounded-lg text-[calc(11px*var(--ts,1))] font-semibold">Done</button>
                                 </div>
                             </div>
                         ` : `
@@ -2703,7 +2773,7 @@
                                 <label class="flex items-center px-3 cursor-pointer" onclick="event.stopPropagation()">
                                     <input type="checkbox" ${pl.completed ? 'checked' : ''} onchange="togglePlanItem(${pid}, ${idx}, '${kind}')" class="w-4 h-4 ${K.check} rounded border-slate-300">
                                 </label>
-                                <div data-edit-trigger onclick="startEditing('${kind}', ${idx})" class="edit-trigger flex-1 min-w-0 py-1.5 sm:py-2 pr-3 text-[13px] sm:text-[15px] font-semibold break-words ${pl.completed ? 'line-through text-slate-400' : 'text-slate-900'}" title="Click to edit">
+                                <div data-edit-trigger onclick="startEditing('${kind}', ${idx})" class="edit-trigger flex-1 min-w-0 py-1.5 sm:py-2 pr-3 text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] font-semibold break-words ${pl.completed ? 'line-through text-slate-400' : 'text-slate-900'}" title="Click to edit">
                                     ${esc(pl.text) || '<span class="text-slate-400 italic font-medium">Empty item</span>'}
                                 </div>
                             </div>
@@ -3030,15 +3100,15 @@
                         <div class="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-100 flex-wrap">
                             <div>
                                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-file-lines text-slate-500"></i> Note · ${esc(p ? p.name : '')}</h3>
-                                <p class="text-[11px] text-slate-400">Fill in the <span class="note-ph">green</span> fields: tap one, then <b>Tab</b> (or <b>Enter</b> on a phone / tablet) moves to the next. Once all are filled, Tab types a tab space and Enter starts a new line.</p>
+                                <p class="text-[calc(11px*var(--ts,1))] text-slate-400">Fill in the <span class="note-ph">green</span> fields: tap one, then <b>Tab</b> (or <b>Enter</b> on a phone / tablet) moves to the next. Once all are filled, Tab types a tab space and Enter starts a new line.</p>
                             </div>
                             <div class="flex items-center gap-2">
-                                <span id="note-status" class="text-[11px] font-bold px-2 py-1 rounded-lg"></span>
+                                <span id="note-status" class="text-[calc(11px*var(--ts,1))] font-bold px-2 py-1 rounded-lg"></span>
                                 <button onclick="copyExtractedNote()" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-semibold flex items-center gap-2"><i class="fa-solid fa-copy"></i> Copy</button>
                                 <button onclick="noteExtractFor = null; closeModal()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm">Close</button>
                             </div>
                         </div>
-                        <div id="note-extract" contenteditable="true" spellcheck="false" oninput="updateNoteFields()" class="note-doc flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-[14px] leading-relaxed text-slate-900 focus:outline-none">${noteLinesHtml(lines)}</div>
+                        <div id="note-extract" contenteditable="true" spellcheck="false" oninput="updateNoteFields()" class="note-doc flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-[calc(14px*var(--ts,1))] leading-relaxed text-slate-900 focus:outline-none">${noteLinesHtml(lines)}</div>
                     </div>
                 </div>`;
             updateNoteFields();
@@ -3060,7 +3130,7 @@
             const st = document.getElementById('note-status');
             if (st) {
                 st.textContent = left ? `${left} field${left === 1 ? '' : 's'} left` : '✓ Note complete';
-                st.className = `text-[11px] font-bold px-2 py-1 rounded-lg ${left ? 'bg-green-100 text-green-800' : 'bg-slate-800 text-white'}`;
+                st.className = `text-[calc(11px*var(--ts,1))] font-bold px-2 py-1 rounded-lg ${left ? 'bg-green-100 text-green-800' : 'bg-slate-800 text-white'}`;
             }
         }
         function selectNoteField(ph) {
@@ -3240,7 +3310,7 @@
                                 ${choice('to', 'home', '<i class="fa-solid fa-house"></i> Home', 'bg-green-700 text-white border-green-700')}
                                 ${choice('to', 'expired', '<i class="fa-solid fa-heart-crack"></i> Expired', 'bg-red-800 text-white border-red-800')}
                             </div>
-                            ${d.to === 'expired' ? '<p class="text-[11px] text-slate-400 mt-1">Goals of care will be set to Expired.</p>' : ''}
+                            ${d.to === 'expired' ? '<p class="text-[calc(11px*var(--ts,1))] text-slate-400 mt-1">Goals of care will be set to Expired.</p>' : ''}
                         </div>
                         <div>
                             <span class="block text-xs font-semibold text-slate-500 mb-1.5">Remove from tomorrow's list?</span>
@@ -3689,9 +3759,9 @@
             return `
                 <div class="size-scale bg-white p-2.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div class="flex items-center justify-between ${invBoxCollapsed ? '' : 'mb-2 sm:mb-3'}">
-                        <button onclick="toggleInvBox()" class="flex items-center gap-2 font-bold text-slate-900 text-[14px] sm:text-[17px]">
+                        <button onclick="toggleInvBox()" class="flex items-center gap-2 font-bold text-slate-900 text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))]">
                             <i class="fa-solid fa-microscope text-cyan-600"></i> Investigations
-                            <span class="text-[11px] text-slate-400 font-semibold">(${panels.length})</span>
+                            <span class="text-[calc(11px*var(--ts,1))] text-slate-400 font-semibold">(${panels.length})</span>
                             <i class="fa-solid fa-chevron-${invBoxCollapsed ? 'down' : 'up'} text-xs text-slate-400"></i>
                         </button>
                         <div class="flex items-center gap-1.5">
@@ -3840,14 +3910,14 @@
             const th = INV_THEMES[def.theme] || INV_THEMES.gray;
             const panelId = jsArg(panel.id);
             const collapsed = !!panel.collapsed;
-            const chevron = `<button onclick="toggleInvPanel(${pid}, ${panelId})" class="px-1 shrink-0" style="color: ${th.icon}" title="${collapsed ? 'Expand' : 'Collapse'}"><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-[11px]"></i></button>`;
+            const chevron = `<button onclick="toggleInvPanel(${pid}, ${panelId})" class="px-1 shrink-0" style="color: ${th.icon}" title="${collapsed ? 'Expand' : 'Collapse'}"><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-[calc(11px*var(--ts,1))]"></i></button>`;
             const header = (titleHtml) => `
                 <div class="flex items-center justify-between gap-2 px-3 py-2 ${collapsed ? '' : 'border-b'}" style="background-color: ${th.head}; border-color: ${th.border}">
                     <div class="flex items-center gap-2 min-w-0 flex-1 font-bold text-sm" style="color: ${th.text}">
                         ${chevron}<i class="fa-solid ${def.icon}" style="color: ${th.icon}"></i>${titleHtml}
                     </div>
-                    ${panel.type === 'ulytes' ? `<div class="flex gap-1 shrink-0">${[['spot', 'Spot'], ['24h', '24 hr']].map(([v, l]) => `<button onclick="setUlytesMode(${pid}, ${panelId}, '${v}')" class="px-2 py-0.5 rounded-md text-[11px] font-bold border transition" style="${(panel.mode || 'spot') === v ? `background-color: ${th.icon}; border-color: ${th.icon}; color: #fff` : `background-color: #fff; border-color: ${th.border}; color: ${th.text}`}">${l}</button>`).join('')}</div>` : ''}
-                    ${panel.type === 'text' && invColumnCount() > 1 ? `<button onclick="toggleInvSpan(${pid}, ${panelId})" class="text-slate-400 hover:text-slate-700 px-1 shrink-0 text-[11px] font-bold" title="${invPanelSpan(panel) === 2 ? 'Make 1 column wide' : 'Make 2 columns wide'}"><i class="fa-solid fa-${invPanelSpan(panel) === 2 ? 'compress' : 'arrows-left-right'}"></i></button>` : ''}
+                    ${panel.type === 'ulytes' ? `<div class="flex gap-1 shrink-0">${[['spot', 'Spot'], ['24h', '24 hr']].map(([v, l]) => `<button onclick="setUlytesMode(${pid}, ${panelId}, '${v}')" class="px-2 py-0.5 rounded-md text-[calc(11px*var(--ts,1))] font-bold border transition" style="${(panel.mode || 'spot') === v ? `background-color: ${th.icon}; border-color: ${th.icon}; color: #fff` : `background-color: #fff; border-color: ${th.border}; color: ${th.text}`}">${l}</button>`).join('')}</div>` : ''}
+                    ${panel.type === 'text' && invColumnCount() > 1 ? `<button onclick="toggleInvSpan(${pid}, ${panelId})" class="text-slate-400 hover:text-slate-700 px-1 shrink-0 text-[calc(11px*var(--ts,1))] font-bold" title="${invPanelSpan(panel) === 2 ? 'Make 1 column wide' : 'Make 2 columns wide'}"><i class="fa-solid fa-${invPanelSpan(panel) === 2 ? 'compress' : 'arrows-left-right'}"></i></button>` : ''}
                     <button onclick="removeInvPanel(${pid}, ${panelId})" class="text-slate-400 hover:text-rose-600 px-1.5 shrink-0" title="Remove from this day"><i class="fa-solid fa-xmark"></i></button>
                 </div>`;
             const wrap = (inner) => `
@@ -3858,7 +3928,7 @@
             const titleInput = (placeholder) => `
                 <span class="flex items-center gap-1.5 min-w-0 flex-1">
                     <input type="text" value="${esc(panel.title || '')}" oninput="updateInvPanelField(${pid}, ${panelId}, 'title', this.value)" class="bg-transparent font-bold text-sm border-b border-dashed focus:outline-none min-w-0 w-full" style="color: ${th.text}; border-color: ${th.border}" placeholder="${placeholder}">
-                    <i class="fa-solid fa-pen text-[10px] opacity-50"></i>
+                    <i class="fa-solid fa-pen text-[calc(10px*var(--ts,1))] opacity-50"></i>
                 </span>`;
 
             if (panel.type === 'text') {
@@ -3880,23 +3950,23 @@
                 const area = (r, field, ph, extra = '') => {
                     const dis = ['organism', 'sens', 'res'].includes(field) && type === 'cultures';
                     const statusHook = field === 'status' && type === 'cultures' ? ' applyNegativeStatus(this);' : '';
-                    return `<textarea rows="1" ${dis ? `data-neg-off ${neg(r) ? 'disabled' : ''}` : ''} oninput="autoGrow(this); ${upd(r, field)};${statusHook}" class="cult-input disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed w-full min-w-0 resize-none bg-white border rounded-md px-1.5 py-1 text-[11px] font-semibold text-slate-800 focus:outline-none focus:ring-2 ${extra}" style="border-color: ${th.input}" placeholder="${ph}">${esc(r[field] || '')}</textarea>`;
+                    return `<textarea rows="1" ${dis ? `data-neg-off ${neg(r) ? 'disabled' : ''}` : ''} oninput="autoGrow(this); ${upd(r, field)};${statusHook}" class="cult-input disabled:bg-slate-100 disabled:text-slate-400 disabled:border-slate-200 disabled:cursor-not-allowed w-full min-w-0 resize-none bg-white border rounded-md px-1.5 py-1 text-[calc(11px*var(--ts,1))] font-semibold text-slate-800 focus:outline-none focus:ring-2 ${extra}" style="border-color: ${th.input}" placeholder="${ph}">${esc(r[field] || '')}</textarea>`;
                 };
-                const srcBox = (r, field) => `<input type="text" list="rec-sources" value="${esc(r[field] || '')}" oninput="paintSource(this, '${th.input}'); ${upd(r, field)}" class="w-full min-w-0 border rounded-md px-1.5 py-1 text-[11px] font-bold focus:outline-none focus:ring-2" style="${sourceStyle(r[field], th.input)}" placeholder="Source" title="Type or pick a source">`;
-                const dateBox = (r) => dateField(r.date || '', `updateRecField(${pid}, '${type}', ${rid(r)}, 'date', this.value, true)`, { cls: 'compact-date w-full bg-white border rounded-md px-1 py-1 text-[11px] font-semibold text-slate-800', placeholder: 'Date' });
+                const srcBox = (r, field) => `<input type="text" list="rec-sources" value="${esc(r[field] || '')}" oninput="paintSource(this, '${th.input}'); ${upd(r, field)}" class="w-full min-w-0 border rounded-md px-1.5 py-1 text-[calc(11px*var(--ts,1))] font-bold focus:outline-none focus:ring-2" style="${sourceStyle(r[field], th.input)}" placeholder="Source" title="Type or pick a source">`;
+                const dateBox = (r) => dateField(r.date || '', `updateRecField(${pid}, '${type}', ${rid(r)}, 'date', this.value, true)`, { cls: 'compact-date w-full bg-white border rounded-md px-1 py-1 text-[calc(11px*var(--ts,1))] font-semibold text-slate-800', placeholder: 'Date' });
                 const C = {
                     source: `<i class="fa-solid fa-vial"></i>`,
                     date: `<i class="fa-regular fa-calendar"></i>`,
                     bug: `<i class="fa-solid fa-bacterium"></i>`,
                     status: `<i class="fa-solid fa-circle-info"></i>`,
-                    sens: `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700"><i class="fa-solid fa-capsules"></i><i class="fa-solid fa-check text-[10px]"></i></span>`,
-                    res: `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700"><i class="fa-solid fa-capsules"></i><i class="fa-solid fa-xmark text-[10px]"></i></span>`
+                    sens: `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700"><i class="fa-solid fa-capsules"></i><i class="fa-solid fa-check text-[calc(10px*var(--ts,1))]"></i></span>`,
+                    res: `<span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700"><i class="fa-solid fa-capsules"></i><i class="fa-solid fa-xmark text-[calc(10px*var(--ts,1))]"></i></span>`
                 };
-                const removeBtn = (r) => `<button onclick="removeRec(${pid}, '${type}', ${rid(r)})" class="text-slate-300 hover:text-rose-500" title="Delete from this patient's record"><i class="fa-solid fa-xmark text-[11px]"></i></button>`;
-                const cell = (icon, inner, title) => `<div class="flex items-start gap-1.5 min-w-0 flex-1"><span class="shrink-0 w-5 pt-1 text-center text-[11px]" style="color: ${th.icon}" title="${title}">${icon}</span><div class="flex-1 min-w-0">${inner}</div></div>`;
+                const removeBtn = (r) => `<button onclick="removeRec(${pid}, '${type}', ${rid(r)})" class="text-slate-300 hover:text-rose-500" title="Delete from this patient's record"><i class="fa-solid fa-xmark text-[calc(11px*var(--ts,1))]"></i></button>`;
+                const cell = (icon, inner, title) => `<div class="flex items-start gap-1.5 min-w-0 flex-1"><span class="shrink-0 w-5 pt-1 text-center text-[calc(11px*var(--ts,1))]" style="color: ${th.icon}" title="${title}">${icon}</span><div class="flex-1 min-w-0">${inner}</div></div>`;
                 const pillCell = (pill, inner, title) => `<div class="flex items-start gap-1.5 min-w-0 flex-1"><span class="shrink-0 pt-0.5" title="${title}">${pill}</span><div class="flex-1 min-w-0">${inner}</div></div>`;
                 const word = { cultures: 'cultures', pcr: 'PCRs', ua: 'urinalyses' }[type];
-                const empty = `<div class="px-2 py-2 text-[11px] text-slate-400 italic">No ${word} yet.</div>`;
+                const empty = `<div class="px-2 py-2 text-[calc(11px*var(--ts,1))] text-slate-400 italic">No ${word} yet.</div>`;
                 const stacked = (inner) => `${rows.length === 0 ? empty : ''}<div class="divide-y divide-slate-100">${rows.map(r => `<div class="rec-row relative p-2 pr-6 space-y-1.5"><div class="absolute right-1.5 top-2">${removeBtn(r)}</div>${inner(r)}</div>`).join('')}</div>`;
                 let body = '';
                 if (type === 'cultures' && !phone) {
@@ -3905,7 +3975,7 @@
                         <table class="w-full min-w-[34rem] text-xs table-fixed">
                             <colgroup><col style="width: 13%"><col style="width: 15%"><col style="width: 14%"><col style="width: 15%"><col><col><col style="width: 1.3rem"></colgroup>
                             <thead>
-                                <tr class="text-[11px]">
+                                <tr class="text-[calc(11px*var(--ts,1))]">
                                     <th class="px-1 py-1.5 text-left font-semibold truncate" style="color: ${th.text}" title="Source">${C.source} Source</th>
                                     <th class="px-1 py-1.5 text-left font-semibold truncate" style="color: ${th.text}" title="Date">${C.date} Date</th>
                                     <th class="px-1 py-1.5 text-left font-semibold truncate" style="color: ${th.text}" title="Status (e.g. treated, colonisation)">${C.status} Status</th>
@@ -3937,7 +4007,7 @@
                         <div class="flex gap-2">${cell(C.bug, area(r, 'organism', 'Bug', 'italic'), 'Bug')}${cell(C.status, area(r, 'status', 'Status'), 'Status')}</div>
                         <div class="flex gap-2">${pillCell(C.sens, area(r, 'sens', 'Sensitive', 'text-emerald-700'), 'Sensitive to')}${pillCell(C.res, area(r, 'res', 'Resistant', 'text-rose-700'), 'Resistant to')}</div>`);
                 } else if (type === 'pcr') {
-                    const resBtn = (r, val, label, on, off) => `<button onclick="setPcrResult(${pid}, ${rid(r)}, '${val}')" class="px-2 py-1 rounded-md text-[11px] font-bold border transition ${r.result === val ? on : off}">${label}</button>`;
+                    const resBtn = (r, val, label, on, off) => `<button onclick="setPcrResult(${pid}, ${rid(r)}, '${val}')" class="px-2 py-1 rounded-md text-[calc(11px*var(--ts,1))] font-bold border transition ${r.result === val ? on : off}">${label}</button>`;
                     body = stacked(r => `
                         <div class="flex gap-2">${cell(C.source, srcBox(r, 'source'), 'Source')}${cell(C.date, dateBox(r), 'Date')}</div>
                         <div class="flex gap-2 items-start">${cell(C.bug, area(r, 'bug', 'Bug / target', 'italic'), 'Bug')}
@@ -3950,11 +4020,11 @@
                     body = stacked(r => `
                         <div class="flex gap-2 items-start">${cell(C.date, dateBox(r), 'Date')}
                             <div class="flex-1 flex gap-1 pt-0.5">
-                                ${[['poc', 'POC'], ['lab', 'Lab']].map(([v, label]) => `<button onclick="setUaKind(${pid}, ${rid(r)}, '${v}')" class="px-2.5 py-1 rounded-md text-[11px] font-bold border transition ${r.kind === v ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'}">${label}</button>`).join('')}
+                                ${[['poc', 'POC'], ['lab', 'Lab']].map(([v, label]) => `<button onclick="setUaKind(${pid}, ${rid(r)}, '${v}')" class="px-2.5 py-1 rounded-md text-[calc(11px*var(--ts,1))] font-bold border transition ${r.kind === v ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50'}">${label}</button>`).join('')}
                             </div>
                         </div>
                         <div class="flex flex-wrap gap-1 pl-6">
-                            ${UA_FLAGS.map(([k, label]) => `<button onclick="toggleUaFlag(${pid}, ${rid(r)}, '${k}')" class="px-2 py-1 rounded-md text-[11px] font-bold border transition ${(r.flags || {})[k] ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-500 border-slate-200 hover:bg-amber-50'}">${(r.flags || {})[k] ? '<i class="fa-solid fa-check text-[9px]"></i> ' : ''}${label}</button>`).join('')}
+                            ${UA_FLAGS.map(([k, label]) => `<button onclick="toggleUaFlag(${pid}, ${rid(r)}, '${k}')" class="px-2 py-1 rounded-md text-[calc(11px*var(--ts,1))] font-bold border transition ${(r.flags || {})[k] ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-slate-500 border-slate-200 hover:bg-amber-50'}">${(r.flags || {})[k] ? '<i class="fa-solid fa-check text-[calc(9px*var(--ts,1))]"></i> ' : ''}${label}</button>`).join('')}
                         </div>
                         <div class="pl-6">${area(r, 'note', 'Notes')}</div>`);
                 }
@@ -4014,10 +4084,10 @@
                                     <tr class="border-t border-slate-100">
                                         <td class="pl-1 pr-2 py-1 font-semibold text-slate-700 whitespace-nowrap sticky left-0 bg-white" ${from ? `title="Format from ${esc(from)}"` : ''}>
                                             <div class="flex items-start gap-1">
-                                                ${isCustom ? `<button onclick="removeCustomLabRow(${pid}, ${panelId}, ${jsArg(label)})" class="shrink-0 w-3.5 leading-none pt-[3px] text-slate-300 hover:text-rose-500" title="Remove row"><i class="fa-solid fa-xmark text-[10px]"></i></button>`
-                                                    : `<button onclick="removeCardComponent(${pid}, ${panelId}, ${jsArg(k)})" class="shrink-0 w-3.5 leading-none pt-[3px] text-slate-300 hover:text-rose-500" title="Remove from this card (this patient only)"><i class="fa-solid fa-xmark text-[10px]"></i></button>`}
+                                                ${isCustom ? `<button onclick="removeCustomLabRow(${pid}, ${panelId}, ${jsArg(label)})" class="shrink-0 w-3.5 leading-none pt-[3px] text-slate-300 hover:text-rose-500" title="Remove row"><i class="fa-solid fa-xmark text-[calc(10px*var(--ts,1))]"></i></button>`
+                                                    : `<button onclick="removeCardComponent(${pid}, ${panelId}, ${jsArg(k)})" class="shrink-0 w-3.5 leading-none pt-[3px] text-slate-300 hover:text-rose-500" title="Remove from this card (this patient only)"><i class="fa-solid fa-xmark text-[calc(10px*var(--ts,1))]"></i></button>`}
                                                 <div class="min-w-0">
-                                                    <div>${esc(label)}${unit ? ` <span class="font-normal text-[10px] text-slate-400">${esc(unit)}</span>` : ''}</div>
+                                                    <div>${esc(label)}${unit ? ` <span class="font-normal text-[calc(10px*var(--ts,1))] text-slate-400">${esc(unit)}</span>` : ''}</div>
                                                     ${rt ? `<div class="lab-range font-normal leading-none text-slate-400">${esc(rt)}</div>` : ''}
                                                 </div>
                                             </div>
@@ -4401,7 +4471,7 @@
                                     </button>`;
                             }; const layout = invSetLayout();
                             return SET_SECTIONS.filter(([key]) => layout[key].length || key === 'mine').map(([key, label]) => `
-                                <div class="col-span-full text-[11px] font-bold text-slate-400 uppercase tracking-wider pt-1">${label}</div>
+                                <div class="col-span-full text-[calc(11px*var(--ts,1))] font-bold text-slate-400 uppercase tracking-wider pt-1">${label}</div>
                                 ${layout[key].map(tile).join('')}
                                 ${key === 'mine' ? newSetTile : ''}`).join(''); })()}
 
@@ -4526,10 +4596,10 @@
             const memo = (p.emrMemo || '').trim();
             if (!memo) return '';
             return `
-                <div class="bg-pink-50 border border-pink-200 ${compact ? 'rounded-lg px-2 py-1.5 text-[11px] gap-2' : 'rounded-2xl p-4 text-sm gap-3'} text-pink-900 flex items-start">
+                <div class="bg-pink-50 border border-pink-200 ${compact ? 'rounded-lg px-2 py-1.5 text-[calc(11px*var(--ts,1))] gap-2' : 'rounded-2xl p-4 text-sm gap-3'} text-pink-900 flex items-start">
                     <i class="fa-solid fa-file-medical mt-0.5 text-pink-500"></i>
                     <div class="flex-1 min-w-0">
-                        ${titled ? '<span class="block text-[10px] font-bold uppercase tracking-wider text-pink-500 mb-0.5">EMR Memo</span>' : ''}
+                        ${titled ? '<span class="block text-[calc(10px*var(--ts,1))] font-bold uppercase tracking-wider text-pink-500 mb-0.5">EMR Memo</span>' : ''}
                         <div class="whitespace-pre-wrap break-words">${esc(memo)}</div>
                     </div>
                     <button onclick="openEmrMemoModal(${pid})" class="text-pink-500 hover:text-pink-800 text-xs" title="Edit EMR memo"><i class="fa-solid fa-pen"></i></button>
@@ -4562,19 +4632,19 @@
             const open = memos.filter(m => m.text && !memoCollapsed[m.kind]);
             const chips = memos.filter(m => !m.text || memoCollapsed[m.kind]);
             const boxHtml = (m) => `
-                <div class="${m.box} border rounded-2xl p-2.5 sm:p-4 text-[12px] sm:text-sm flex items-start gap-2.5">
+                <div class="${m.box} border rounded-2xl p-2.5 sm:p-4 text-[calc(12px*var(--ts,1))] sm:text-sm flex items-start gap-2.5">
                     <i class="fa-solid ${m.icon} mt-0.5 ${m.accent}"></i>
                     <div class="flex-1 min-w-0">
-                        <button onclick="toggleMemoCollapse('${m.kind}')" class="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${m.accent} mb-0.5" title="Collapse">
-                            ${m.label}${m.dated ? ` · ${esc(fmtDate(currentViewDate))}` : ''} <i class="fa-solid fa-chevron-up text-[9px]"></i>
+                        <button onclick="toggleMemoCollapse('${m.kind}')" class="flex items-center gap-1.5 text-[calc(10px*var(--ts,1))] font-bold uppercase tracking-wider ${m.accent} mb-0.5" title="Collapse">
+                            ${m.label}${m.dated ? ` · ${esc(fmtDate(currentViewDate))}` : ''} <i class="fa-solid fa-chevron-up text-[calc(9px*var(--ts,1))]"></i>
                         </button>
                         <div class="whitespace-pre-wrap break-words">${esc(m.text)}</div>
                     </div>
                     <button onclick="${m.edit}(${pid})" class="${m.accent} hover:opacity-70 text-xs" title="Edit"><i class="fa-solid fa-pen"></i></button>
                 </div>`;
             const chipHtml = (m) => m.text
-                ? `<button onclick="toggleMemoCollapse('${m.kind}')" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl border text-[11px] sm:text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${m.on}" title="Show"><i class="fa-solid ${m.icon}"></i> ${m.chip || m.label} <i class="fa-solid fa-chevron-down text-[9px] opacity-80"></i></button>`
-                : `<button onclick="${m.edit}(${pid})" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl border text-[11px] sm:text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${m.off}" title="Add"><i class="fa-solid fa-plus"></i> ${m.chip || m.label}</button>`;
+                ? `<button onclick="toggleMemoCollapse('${m.kind}')" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl border text-[calc(11px*var(--ts,1))] sm:text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${m.on}" title="Show"><i class="fa-solid ${m.icon}"></i> ${m.chip || m.label} <i class="fa-solid fa-chevron-down text-[calc(9px*var(--ts,1))] opacity-80"></i></button>`
+                : `<button onclick="${m.edit}(${pid})" class="px-2 sm:px-3 py-1 sm:py-1.5 rounded-xl border text-[calc(11px*var(--ts,1))] sm:text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap ${m.off}" title="Add"><i class="fa-solid fa-plus"></i> ${m.chip || m.label}</button>`;
             if (part === 'chips') return chips.map(chipHtml).join('');
             const cols = open.length >= 3 ? 'md:grid-cols-3' : open.length === 2 ? 'md:grid-cols-2' : '';
             if (!open.length) return '';
@@ -4694,21 +4764,21 @@
                     <!-- HEADER: name + MRN on the left, last documented details on the right -->
                     <div class="bg-white p-5 rounded-2xl border border-maroon-200 shadow-sm flex flex-wrap items-center justify-between gap-4">
                         <div class="flex items-center gap-3 flex-wrap">
-                            <span class="font-extrabold text-slate-900 text-[28px]">${esc(p.name)}</span>
+                            <span class="font-extrabold text-slate-900 text-[calc(28px*var(--ts,1))]">${esc(p.name)}</span>
                             <span class="text-xs bg-maroon-50 text-maroon-700 font-semibold px-2.5 py-1 rounded-lg">MRN: ${esc(p.mrn || '-')}</span>
                         </div>
                         <div class="flex items-stretch gap-3 flex-wrap">
                             <div class="bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200/70 flex flex-col items-center justify-center min-w-[90px]">
-                                <span class="block mb-1 text-[12px] font-semibold text-slate-500">Age</span>
-                                <span class="text-[17px] font-bold text-slate-800">${esc(ageText({ ...info, dob: p.dob }, todayStr()) || '-')}</span>
+                                <span class="block mb-1 text-[calc(12px*var(--ts,1))] font-semibold text-slate-500">Age</span>
+                                <span class="text-[calc(17px*var(--ts,1))] font-bold text-slate-800">${esc(ageText({ ...info, dob: p.dob }, todayStr()) || '-')}</span>
                             </div>
                             <div class="bg-slate-50 px-4 py-2.5 rounded-xl border border-slate-200/70 flex flex-col items-center justify-center min-w-[90px]">
-                                <span class="block mb-1 text-[12px] font-semibold text-slate-500">Gender</span>
-                                <span class="px-2 py-0.5 rounded text-[15px] font-bold ${genderBg}">${esc(p.gender || 'M')}</span>
+                                <span class="block mb-1 text-[calc(12px*var(--ts,1))] font-semibold text-slate-500">Gender</span>
+                                <span class="px-2 py-0.5 rounded text-[calc(15px*var(--ts,1))] font-bold ${genderBg}">${esc(p.gender || 'M')}</span>
                             </div>
                             <div class="px-4 py-2.5 rounded-xl border border-slate-200/70 flex flex-col items-center justify-center min-w-[110px]" style="background-color: ${esc(gocBg)}; color: ${esc(gocColor)}">
-                                <span class="block mb-1 text-[12px] font-semibold opacity-75">Goals of Care</span>
-                                <span class="text-[15px] font-bold">${esc(info.goalsOfCare || '-')}</span>
+                                <span class="block mb-1 text-[calc(12px*var(--ts,1))] font-semibold opacity-75">Goals of Care</span>
+                                <span class="text-[calc(15px*var(--ts,1))] font-bold">${esc(info.goalsOfCare || '-')}</span>
                             </div>
                         </div>
                     </div>
@@ -4720,7 +4790,7 @@
                     <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="font-bold text-slate-800 text-sm">Medical Background</h3>
-                            ${asOf ? `<span class="text-[11px] text-slate-400">Last documented ${esc(fmtDate(asOf))}</span>` : ''}
+                            ${asOf ? `<span class="text-[calc(11px*var(--ts,1))] text-slate-400">Last documented ${esc(fmtDate(asOf))}</span>` : ''}
                         </div>
                         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             ${info.medicalBackground.length === 0 ? '<p class="text-xs text-slate-400 italic">No medical background recorded.</p>' : ''}
@@ -4736,7 +4806,7 @@
                     <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                         <div class="flex items-center justify-between flex-wrap gap-2 mb-3">
                             <h3 class="font-bold text-slate-800 text-sm">Encounters</h3>
-                            <div class="flex items-center gap-3 text-[11px] font-semibold text-slate-500">
+                            <div class="flex items-center gap-3 text-[calc(11px*var(--ts,1))] font-semibold text-slate-500">
                                 <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full ${LIST_TYPE_STYLE.Inpatient.dot}"></span>Inpatient</span>
                                 <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-full ${LIST_TYPE_STYLE.Consult.dot}"></span>Consult</span>
 
@@ -4821,7 +4891,7 @@
                 const builtInRange = type !== 'custom' && !r.own && LAB_REF[key];
                 let rangeHtml;
                 if (r.calc) {
-                    rangeHtml = `<span class="text-[11px] text-slate-400 italic">calculated</span>`;
+                    rangeHtml = `<span class="text-[calc(11px*var(--ts,1))] text-slate-400 italic">calculated</span>`;
                 } else if (builtInRange) {
                     const refs = LAB_REF[key];
                     const sel = labUnitIndex(key);
@@ -4831,19 +4901,19 @@
                         const rfF = refs[i].loF !== undefined ? labRange(key, 'F', i) : null;
                         const txt = (rangeText({ ...rm, u: '' }) || 'no range') + (rfF ? ` · F ${rangeText({ ...rfF, u: '' })}` : '');
                         return `
-                            <span class="inline-flex items-stretch rounded-lg border text-[11px] overflow-hidden ${isSel ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 bg-white'}">
+                            <span class="inline-flex items-stretch rounded-lg border text-[calc(11px*var(--ts,1))] overflow-hidden ${isSel ? 'border-indigo-400 bg-indigo-50' : 'border-slate-200 bg-white'}">
                                 <button onclick="setLabUnit('${key}', ${i})" class="px-2 py-1 font-semibold ${isSel ? 'text-indigo-700' : 'text-slate-500'}" title="${refs.length > 1 ? 'Use this unit' : ''}">
-                                    ${refs.length > 1 ? `<i class="fa-${isSel ? 'solid fa-circle-dot' : 'regular fa-circle'} text-[9px] mr-1"></i>` : ''}${esc(rf.u || 'no unit')}
+                                    ${refs.length > 1 ? `<i class="fa-${isSel ? 'solid fa-circle-dot' : 'regular fa-circle'} text-[calc(9px*var(--ts,1))] mr-1"></i>` : ''}${esc(rf.u || 'no unit')}
                                 </button>
                                 <button onclick="openLabRangeEditor('${key}', ${i})" class="px-2 py-1 border-l ${isSel ? 'border-indigo-200' : 'border-slate-200'} text-slate-600 hover:bg-white" title="Tap to edit the range">
-                                    ${esc(txt)} <i class="fa-solid fa-pen text-[8px] opacity-50 ml-0.5"></i>
+                                    ${esc(txt)} <i class="fa-solid fa-pen text-[calc(8px*var(--ts,1))] opacity-50 ml-0.5"></i>
                                 </button>
                             </span>`;
                     }).join('');
                 } else {
                     const rg = ownRange(r);
                     const txt = [r.unit || 'no unit', rg ? rangeText({ ...rg, u: '' }) : 'no range'].join(' · ');
-                    rangeHtml = `<button onclick="openComponentEditor(${jsArg(ref)}, ${jsArg(r.k)})" class="px-2 py-1 rounded-lg border border-slate-200 bg-white text-[11px] text-slate-600 hover:bg-slate-50">${esc(txt)} <i class="fa-solid fa-pen text-[8px] opacity-50 ml-0.5"></i></button>`;
+                    rangeHtml = `<button onclick="openComponentEditor(${jsArg(ref)}, ${jsArg(r.k)})" class="px-2 py-1 rounded-lg border border-slate-200 bg-white text-[calc(11px*var(--ts,1))] text-slate-600 hover:bg-slate-50">${esc(txt)} <i class="fa-solid fa-pen text-[calc(8px*var(--ts,1))] opacity-50 ml-0.5"></i></button>`;
                 }
                 return `
                     <div class="flex items-center gap-2 px-3 py-2">
@@ -4857,7 +4927,7 @@
                 ${gripHandle('rounded-r-2xl', { bg: th.border + '66', fg: th.icon })}
                 <div class="flex-1 min-w-0">
                     <button onclick="toggleLabGroup(${esc(JSON.stringify(ref))})" class="w-full flex items-center justify-between px-3 py-2 text-sm font-bold" style="background-color: ${th.head}; color: ${th.text}">
-                        <span class="flex items-center gap-2 min-w-0"><i class="fa-solid ${def.icon}" style="color: ${th.icon}"></i><span class="truncate">${esc(def.title)}</span><span class="text-[11px] font-semibold opacity-60">(${rows.length})</span></span>
+                        <span class="flex items-center gap-2 min-w-0"><i class="fa-solid ${def.icon}" style="color: ${th.icon}"></i><span class="truncate">${esc(def.title)}</span><span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-60">(${rows.length})</span></span>
                         <i class="fa-solid fa-chevron-${open ? 'up' : 'down'} text-xs"></i>
                     </button>
                     ${open ? `
@@ -4922,12 +4992,12 @@
                 if (ref.startsWith('cs:')) {
                     const cs = customSet(ref.slice(3));
                     return setGroupHtml(ref, { title: cs.title, icon: 'fa-table-list', theme: 'gray' }, cs.rows || [],
-                        `<button onclick="openSetEditor(${jsArg(cs.id)})" class="px-2 py-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800"><i class="fa-solid fa-pen"></i> Rename</button>
-                         <button onclick="deleteCustomSet(${jsArg(cs.id)})" class="px-2 py-1 text-[11px] font-semibold text-rose-500 hover:text-rose-700"><i class="fa-solid fa-trash"></i> Delete</button>`);
+                        `<button onclick="openSetEditor(${jsArg(cs.id)})" class="px-2 py-1 text-[calc(11px*var(--ts,1))] font-semibold text-slate-500 hover:text-slate-800"><i class="fa-solid fa-pen"></i> Rename</button>
+                         <button onclick="deleteCustomSet(${jsArg(cs.id)})" class="px-2 py-1 text-[calc(11px*var(--ts,1))] font-semibold text-rose-500 hover:text-rose-700"><i class="fa-solid fa-trash"></i> Delete</button>`);
                 }
                 if (TABLE_TYPES.includes(ref)) {
                     return setGroupHtml(ref, INV_TYPES[ref], currentSetRows(ref),
-                        edited[ref] ? `<button onclick="resetBuiltInSet('${ref}')" class="px-2 py-1 text-[11px] font-semibold text-slate-500 hover:text-slate-800">Reset</button>` : '');
+                        edited[ref] ? `<button onclick="resetBuiltInSet('${ref}')" class="px-2 py-1 text-[calc(11px*var(--ts,1))] font-semibold text-slate-500 hover:text-slate-800">Reset</button>` : '');
                 }
                 // Cards without components (cultures, PCR, notes...) - only their place in the order.
                 const d = INV_TYPES[ref], th = INV_THEMES[d.theme] || INV_THEMES.gray;
@@ -4945,7 +5015,7 @@
                     <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">${label}</h4>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-2 items-start min-h-[2.75rem] rounded-2xl ${layout[key].length ? '' : 'border-2 border-dashed border-slate-200'}" data-sort-list="invsets" data-sort-group="invsets" data-section="${key}">
                         ${layout[key].map(itemHtml).join('')}
-                        ${layout[key].length ? '' : `<p class="col-span-full text-[11px] text-slate-400 italic px-3 py-3">${key === 'mine' ? 'Use "New set", or drag a set here.' : 'Drag sets here.'}</p>`}
+                        ${layout[key].length ? '' : `<p class="col-span-full text-[calc(11px*var(--ts,1))] text-slate-400 italic px-3 py-3">${key === 'mine' ? 'Use "New set", or drag a set here.' : 'Drag sets here.'}</p>`}
                     </div>
                 </div>`).join('');
             const on = labSettings().useRanges;
@@ -4977,16 +5047,16 @@
                     <div class="bg-white rounded-3xl p-5 max-w-sm w-full shadow-2xl space-y-4">
                         <h3 class="text-base font-bold text-slate-800">${r ? 'Edit component' : 'Add component'} <span class="text-slate-400 font-semibold">· ${esc(setTitle || '')}</span></h3>
                         <div class="grid grid-cols-2 gap-3">
-                            <label class="block col-span-2"><span class="block text-[11px] font-medium text-slate-500 mb-1">Name</span>
+                            <label class="block col-span-2"><span class="block text-[calc(11px*var(--ts,1))] font-medium text-slate-500 mb-1">Name</span>
                                 <input id="ce-name" type="text" value="${val(r && r.label)}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="e.g. Amylase"></label>
-                            <label class="block col-span-2"><span class="block text-[11px] font-medium text-slate-500 mb-1">Unit</span>
+                            <label class="block col-span-2"><span class="block text-[calc(11px*var(--ts,1))] font-medium text-slate-500 mb-1">Unit</span>
                                 <input id="ce-unit" type="text" value="${val(r && r.unit)}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="e.g. U/L"></label>
-                            <label class="block"><span class="block text-[11px] font-medium text-slate-500 mb-1">Low</span>
+                            <label class="block"><span class="block text-[calc(11px*var(--ts,1))] font-medium text-slate-500 mb-1">Low</span>
                                 <input id="ce-lo" type="text" inputmode="decimal" value="${val(r && r.lo)}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="none"></label>
-                            <label class="block"><span class="block text-[11px] font-medium text-slate-500 mb-1">High</span>
+                            <label class="block"><span class="block text-[calc(11px*var(--ts,1))] font-medium text-slate-500 mb-1">High</span>
                                 <input id="ce-hi" type="text" inputmode="decimal" value="${val(r && r.hi)}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="none"></label>
                         </div>
-                        <p class="text-[11px] text-slate-400">Leave Low or High empty for no limit.</p>
+                        <p class="text-[calc(11px*var(--ts,1))] text-slate-400">Leave Low or High empty for no limit.</p>
                         <div class="flex justify-end gap-2">
                             <button onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
                             <button onclick="saveComponent(${jsArg(ref)}, ${jsArg(k || '')})" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium">Save</button>
@@ -5044,14 +5114,14 @@
                 <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto" onclick="if (event.target === this) closeModal()">
                     <div class="bg-white rounded-3xl p-5 max-w-md w-full shadow-2xl space-y-4 my-8">
                         <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-table-list text-slate-400"></i> ${cs ? 'Rename set' : 'New investigation set'}</h3>
-                        <label class="block"><span class="block text-[11px] font-medium text-slate-500 mb-1">Set name</span>
+                        <label class="block"><span class="block text-[calc(11px*var(--ts,1))] font-medium text-slate-500 mb-1">Set name</span>
                             <input id="se-title" type="text" value="${cs ? esc(cs.title) : ''}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold" placeholder="e.g. Pancreas"></label>
                         ${cs ? '' : `
                             <div>
-                                <div class="grid grid-cols-[1fr_4.5rem_3.5rem_3.5rem_1.2rem] gap-1.5 text-[10px] font-semibold text-slate-400 mb-1 px-0.5"><span>Component</span><span>Unit</span><span>Low</span><span>High</span><span></span></div>
+                                <div class="grid grid-cols-[1fr_4.5rem_3.5rem_3.5rem_1.2rem] gap-1.5 text-[calc(10px*var(--ts,1))] font-semibold text-slate-400 mb-1 px-0.5"><span>Component</span><span>Unit</span><span>Low</span><span>High</span><span></span></div>
                                 <div id="se-rows" class="space-y-1.5">${setEditorRowHtml()}${setEditorRowHtml()}</div>
                                 <button onclick="addSetEditorRow()" class="mt-2 px-2.5 py-1 rounded-lg text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700"><i class="fa-solid fa-plus"></i> Add component</button>
-                                <p class="text-[11px] text-slate-400 mt-2">Unit and range are optional. You can add or remove components later in Settings.</p>
+                                <p class="text-[calc(11px*var(--ts,1))] text-slate-400 mt-2">Unit and range are optional. You can add or remove components later in Settings.</p>
                             </div>`}
                         <div class="flex justify-end gap-2">
                             <button onclick="${addAfter ? 'openAddInvestigationModal()' : 'closeModal()'}" class="px-4 py-2 bg-slate-100 rounded-xl text-sm">${addAfter ? 'Back' : 'Cancel'}</button>
@@ -5142,7 +5212,7 @@
             const label = (INV_TYPES[g].rows.find(r => r[0] === k) || [k, k])[1];
             const val = (v) => (v === null || v === undefined) ? '' : esc(String(v));
             const field = (id, name, v) => `
-                <label class="block"><span class="block text-[11px] font-medium text-slate-500 mb-1">${name}</span>
+                <label class="block"><span class="block text-[calc(11px*var(--ts,1))] font-medium text-slate-500 mb-1">${name}</span>
                     <input id="${id}" type="text" inputmode="decimal" value="${val(v)}" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm" placeholder="none"></label>`;
             document.getElementById('modal-container').innerHTML = `
                 <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50" onclick="if (event.target === this) closeModal()">
@@ -5153,7 +5223,7 @@
                             ${field('lr-hi', hasF ? 'High (male)' : 'High', cur.hi)}
                             ${hasF ? field('lr-lof', 'Low (female)', cur.loF) + field('lr-hif', 'High (female)', cur.hiF) : ''}
                         </div>
-                        <p class="text-[11px] text-slate-400">Leave a box empty for no limit. Default: ${esc(rangeText({ u: '', lo: ref.lo ?? null, hi: ref.hi ?? null }) || 'none')}${hasF ? `, female ${esc(rangeText({ u: '', lo: ref.loF ?? null, hi: ref.hiF ?? null }))}` : ''}.</p>
+                        <p class="text-[calc(11px*var(--ts,1))] text-slate-400">Leave a box empty for no limit. Default: ${esc(rangeText({ u: '', lo: ref.lo ?? null, hi: ref.hi ?? null }) || 'none')}${hasF ? `, female ${esc(rangeText({ u: '', lo: ref.loF ?? null, hi: ref.hiF ?? null }))}` : ''}.</p>
                         <div class="flex justify-between gap-2">
                             <button onclick="resetLabRange('${key}', ${i})" class="px-3 py-2 text-xs font-semibold text-slate-500 hover:text-slate-800">Reset to default</button>
                             <div class="flex gap-2">
@@ -5205,6 +5275,14 @@
             applyCardScale();
             renderApp();
         }
+        const TEXT_SCALES = [[0.9, 'Small'], [1, 'Normal'], [1.12, 'Large'], [1.25, 'Extra large'], [1.4, 'Huge']];
+        function getTextScale() { return Store.get('text_scale', 1); }
+        function applyTextScale() { document.documentElement.style.setProperty('--ts', String(getTextScale())); }
+        function setTextScale(v) {
+            Store.set('text_scale', v);
+            applyTextScale();
+            renderApp();
+        }
         function getTheme() { return Store.get('theme', 'light'); }
         function applyTheme() {
             const t = getTheme();
@@ -5251,7 +5329,16 @@
                                     </button>`).join('')}
                             </div>
                             <div class="pt-2">
-                                <span class="block text-xs font-semibold text-slate-600 mb-1.5">Card size <span class="font-normal text-slate-400">— list cards, record boxes and All Patients cards</span></span>
+                                <span class="block text-xs font-semibold text-slate-600 mb-1.5">Text size <span class="font-normal text-slate-400">— makes the writing bigger or smaller everywhere; boxes stay the same width</span></span>
+                                <div class="inline-flex p-1 bg-slate-100 rounded-2xl gap-1 flex-wrap">
+                                    ${TEXT_SCALES.map(([v, label]) => `
+                                        <button onclick="setTextScale(${v})" class="px-3 py-1.5 rounded-xl text-sm font-semibold transition ${getTextScale() === v ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}">
+                                            <span style="font-size: ${Math.round(13 * v)}px">A</span> ${label}
+                                        </button>`).join('')}
+                                </div>
+                            </div>
+                            <div class="pt-2">
+                                <span class="block text-xs font-semibold text-slate-600 mb-1.5">Card zoom <span class="font-normal text-slate-400">— enlarges whole cards and boxes (text and spacing together)</span></span>
                                 <div class="inline-flex p-1 bg-slate-100 rounded-2xl gap-1 flex-wrap">
                                     ${CARD_SCALES.map(([v, label]) => `
                                         <button onclick="setCardScale(${v})" class="px-3 py-1.5 rounded-xl text-sm font-semibold transition ${getCardScale() === v ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}">
@@ -5959,7 +6046,7 @@
                 return;
             }
             if (mrnLink.decided === 'no') {
-                box.className = 'text-[11px] text-slate-500';
+                box.className = 'text-[calc(11px*var(--ts,1))] text-slate-500';
                 box.innerHTML = `Will be added as a separate patient (same MRN as ${esc(match.name)}). <button onclick="answerMrnMatch(null)" class="underline">Change</button>`;
                 return;
             }
@@ -6594,16 +6681,16 @@
                                     <button onclick="setExportScope('${v}')" data-scope-btn="${v}" class="flex-1 px-2 py-1.5 rounded-lg text-xs font-semibold transition ${v === 'all' ? 'bg-white text-amber-700 shadow-sm' : 'text-slate-600'}">${l}</button>`).join('')}
                             </div>
                             <div id="exp-day-box" class="hidden">
-                                <span class="block text-[11px] text-slate-500 mb-1">Day</span>
+                                <span class="block text-[calc(11px*var(--ts,1))] text-slate-500 mb-1">Day</span>
                                 ${dateField(currentViewDate, '', { id: 'exp-day', cls: 'w-full justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm' })}
                             </div>
                             <div id="exp-range-box" class="hidden grid grid-cols-2 gap-2">
-                                <div><span class="block text-[11px] text-slate-500 mb-1">From</span>${dateField(addDays(currentViewDate, -6), '', { id: 'exp-from', cls: 'w-full justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm' })}</div>
-                                <div><span class="block text-[11px] text-slate-500 mb-1">To</span>${dateField(currentViewDate, '', { id: 'exp-to', cls: 'w-full justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm' })}</div>
+                                <div><span class="block text-[calc(11px*var(--ts,1))] text-slate-500 mb-1">From</span>${dateField(addDays(currentViewDate, -6), '', { id: 'exp-from', cls: 'w-full justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm' })}</div>
+                                <div><span class="block text-[calc(11px*var(--ts,1))] text-slate-500 mb-1">To</span>${dateField(currentViewDate, '', { id: 'exp-to', cls: 'w-full justify-between px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm' })}</div>
                             </div>
-                            <p id="exp-scope-note" class="text-[11px] text-slate-400">All patients, lists and settings. Keep it somewhere safe; restore it with Import Backup.</p>
+                            <p id="exp-scope-note" class="text-[calc(11px*var(--ts,1))] text-slate-400">All patients, lists and settings. Keep it somewhere safe; restore it with Import Backup.</p>
                             <label class="flex items-center justify-between gap-3 p-2.5 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
-                                <span class="text-xs font-semibold text-slate-700">Include settings <span class="block font-normal text-[11px] text-slate-400">Wards, goals of care, tags, colours, investigation sets, appearance</span></span>
+                                <span class="text-xs font-semibold text-slate-700">Include settings <span class="block font-normal text-[calc(11px*var(--ts,1))] text-slate-400">Wards, goals of care, tags, colours, investigation sets, appearance</span></span>
                                 <input type="checkbox" id="exp-settings" checked class="w-5 h-5 accent-amber-600">
                             </label>
                         </div>
@@ -6617,10 +6704,10 @@
                                     <label class="block text-xs font-medium text-slate-500 mb-1">Confirm password</label>
                                     <input type="password" id="modal-export-pw2" autocomplete="new-password" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm">
                                 </div>
-                                <p class="text-[11px] text-slate-400">The file contains patient information. With a password it is encrypted. If you forget the password, the backup cannot be opened.</p>
+                                <p class="text-[calc(11px*var(--ts,1))] text-slate-400">The file contains patient information. With a password it is encrypted. If you forget the password, the backup cannot be opened.</p>
                             </div>
                         ` : `
-                            <p class="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2">Password protection isn't available in this browser, so the file will not be encrypted. Store it securely.</p>
+                            <p class="text-[calc(11px*var(--ts,1))] text-amber-700 bg-amber-50 border border-amber-200 rounded-xl p-2">Password protection isn't available in this browser, so the file will not be encrypted. Store it securely.</p>
                         `}
                         <p id="modal-export-error" class="hidden text-xs text-rose-600"></p>
                         <div class="flex justify-end space-x-2 pt-2">
@@ -6845,27 +6932,27 @@
                         <p class="text-xs text-slate-500">From <strong>${esc(formatDateTime(exportedAt))}</strong> · ${count} patient${count === 1 ? '' : 's'} ${esc(scope)}</p>
                         <button onclick="runImport('add')" class="w-full text-left p-3 rounded-2xl border-2 border-emerald-200 bg-emerald-50 hover:bg-emerald-100 transition">
                             <span class="block font-bold text-emerald-800 text-sm"><i class="fa-solid fa-plus"></i> Add to my data</span>
-                            <span class="block text-[11px] text-emerald-900/70 mt-0.5">Keeps everything you have. New patients and entries are added; patients are matched by MRN. Entries you already have for the same day stay as yours.</span>
+                            <span class="block text-[calc(11px*var(--ts,1))] text-emerald-900/70 mt-0.5">Keeps everything you have. New patients and entries are added; patients are matched by MRN. Entries you already have for the same day stay as yours.</span>
                         </button>
                         <button onclick="runImport('replace')" class="w-full text-left p-3 rounded-2xl border-2 border-rose-200 bg-rose-50 hover:bg-rose-100 transition">
                             <span class="block font-bold text-rose-700 text-sm"><i class="fa-solid fa-arrows-rotate"></i> Replace my data</span>
-                            <span class="block text-[11px] text-rose-900/70 mt-0.5">Deletes everything on this device and uses the backup instead. Export your current data first if you might need it.</span>
+                            <span class="block text-[calc(11px*var(--ts,1))] text-rose-900/70 mt-0.5">Deletes everything on this device and uses the backup instead. Export your current data first if you might need it.</span>
                         </button>
-                        ${data.noSettings ? `<p class="text-[11px] text-slate-400">This file has no settings; yours stay as they are.</p>` : data.scope ? `
+                        ${data.noSettings ? `<p class="text-[calc(11px*var(--ts,1))] text-slate-400">This file has no settings; yours stay as they are.</p>` : data.scope ? `
                             <div class="p-3 rounded-2xl border border-slate-200 bg-slate-50">
                                 <label class="flex items-center justify-between gap-3 cursor-pointer">
                                     <span class="text-xs font-semibold text-slate-700">Also import settings</span>
                                     <input type="checkbox" id="imp-settings" onchange="document.getElementById('imp-settings-warn').classList.toggle('hidden', !this.checked)" class="w-5 h-5 accent-amber-600">
                                 </label>
-                                <p class="text-[11px] text-slate-400 mt-1">Off: only patients and lists are imported; your settings stay as they are.</p>
-                                <p id="imp-settings-warn" class="hidden text-[11px] font-semibold text-amber-700 mt-1.5"><i class="fa-solid fa-triangle-exclamation"></i> Your wards, goals of care, tags, colour codes, investigation sets, physician colours and appearance will be replaced by the ones in this file.</p>
-                            </div>` : `<p class="text-[11px] text-slate-400">A full backup includes settings.</p>`}
+                                <p class="text-[calc(11px*var(--ts,1))] text-slate-400 mt-1">Off: only patients and lists are imported; your settings stay as they are.</p>
+                                <p id="imp-settings-warn" class="hidden text-[calc(11px*var(--ts,1))] font-semibold text-amber-700 mt-1.5"><i class="fa-solid fa-triangle-exclamation"></i> Your wards, goals of care, tags, colour codes, investigation sets, physician colours and appearance will be replaced by the ones in this file.</p>
+                            </div>` : `<p class="text-[calc(11px*var(--ts,1))] text-slate-400">A full backup includes settings.</p>`}
                         <div class="flex justify-end"><button onclick="pendingImportData = null; closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button></div>
                     </div>
                 </div>`;
         }
         // Settings carried by a backup (everything except patients and lists).
-        const SETTINGS_KEYS = ['settings', 'physician_colors_v2', 'physician_color_pins', 'lab_settings', 'theme', 'card_scale', 'settings_closed'];
+        const SETTINGS_KEYS = ['settings', 'physician_colors_v2', 'physician_color_pins', 'lab_settings', 'theme', 'card_scale', 'text_scale', 'settings_closed'];
         function runImport(mode) {
             const data = pendingImportData;
             const box = document.getElementById('imp-settings');
@@ -6936,7 +7023,7 @@
             if (settingsMode === 'replace') {
                 SETTINGS_KEYS.forEach(k => { if (data[k] !== undefined) Store.set(k, data[k]); });
                 settingsClosed = null;
-                try { applyTheme(); applyCardScale(); } catch (e) {}
+                try { applyTheme(); applyCardScale(); applyTextScale(); } catch (e) {}
             }
             // Settings: add wards, goals of care, tags and colour codes you don't have yet.
             if (settingsMode === 'merge' && data.settings) {
@@ -6988,7 +7075,7 @@
             try { migrateConsultEntries(); } catch (e) {}
             try { migrateRecs(); } catch (e) {}
             settingsClosed = null;
-            try { applyTheme(); applyCardScale(); } catch (e) {}
+            try { applyTheme(); applyCardScale(); applyTextScale(); } catch (e) {}
             currentViewDate = todayStr();
             activePatientId = null;
             renderApp();
@@ -7050,9 +7137,81 @@
             Store.set('entry_split_v1', true);
         }
 
+        /* =========================================================
+           ON-SCREEN KEYBOARD
+           1) Mouse / hardware keyboard in use → typing boxes open WITHOUT the on-screen keyboard
+              (inputmode="none"). Touching the screen brings the on-screen keyboard back.
+              iPhone / iPad already do this by themselves when a keyboard is attached, so it's Android / other only.
+           2) When the on-screen keyboard opens, the box being typed in is kept in view, and the
+              record header stops sticking so it can't cover it.
+           ========================================================= */
+        const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const TYPING_SEL = 'input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=file]):not([type=range]):not([type=color]):not([type=date]), textarea, [contenteditable="true"], [contenteditable=""]';
+        function isTypingBox(el) { return !!(el && el.matches && el.matches(TYPING_SEL)); }
+        let inputMode = 'touch'; // 'touch' | 'hw' (mouse or hardware keyboard)
+        function kbSuppress(el) {
+            if (!el.hasAttribute('data-im-orig')) el.setAttribute('data-im-orig', el.getAttribute('inputmode') || '');
+            el.setAttribute('inputmode', 'none');
+        }
+        function kbRestore(el) {
+            if (!el.hasAttribute('data-im-orig')) return;
+            const o = el.getAttribute('data-im-orig');
+            el.removeAttribute('data-im-orig');
+            if (o) el.setAttribute('inputmode', o); else el.removeAttribute('inputmode');
+        }
+        if (!IS_IOS) {
+            document.addEventListener('pointerdown', (e) => {
+                inputMode = (e.pointerType === 'mouse') ? 'hw' : 'touch';
+                const el = e.target && e.target.closest ? e.target.closest(TYPING_SEL) : null;
+                if (el) { if (inputMode === 'hw') kbSuppress(el); else kbRestore(el); }
+                // a box that is already focused: touching anywhere brings its keyboard back
+                const a = document.activeElement;
+                if (inputMode === 'touch' && a && a !== el && a.hasAttribute && a.hasAttribute('data-im-orig') && a.contains(e.target)) kbRestore(a);
+            }, true);
+            document.addEventListener('keydown', (e) => {
+                // On-screen keyboards report letters as "Unidentified" / 229; real keys come through by name.
+                if (e.isComposing || e.keyCode === 229 || !e.key || e.key === 'Unidentified' || e.key === 'Process') return;
+                if (e.key === 'Tab' || e.key.indexOf('Arrow') === 0 || e.key === 'Escape' || (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey)) {
+                    inputMode = 'hw'; // applies to the next box you move to (Tab, Enter jump, mouse click)
+                }
+            }, true);
+            document.addEventListener('focusin', (e) => {
+                if (!isTypingBox(e.target)) return;
+                if (inputMode === 'hw') kbSuppress(e.target); else kbRestore(e.target);
+            }, true);
+        }
+
+        // Keep the focused box visible above the on-screen keyboard
+        const vv = window.visualViewport;
+        function keyboardOpen() { return !!vv && (window.innerHeight - vv.height) > 120; }
+        let kbTimer = null;
+        function keepFocusVisible() {
+            const el = document.activeElement;
+            const open = keyboardOpen() && isTypingBox(el);
+            document.documentElement.classList.toggle('kb-open', open);
+            if (!open) return;
+            const r = el.getBoundingClientRect();
+            const top = vv.offsetTop + 8, bottom = vv.offsetTop + vv.height - 8;
+            let dy = 0;
+            if (r.height <= bottom - top) {
+                if (r.bottom > bottom) dy = r.bottom - bottom;
+                else if (r.top < top) dy = r.top - top;
+            } else if (r.top > top || r.bottom < top + 40) {
+                dy = r.top - top; // taller than the space: show its top
+            }
+            if (Math.abs(dy) > 2) window.scrollBy(0, dy);
+        }
+        function scheduleKeepVisible(delay) { clearTimeout(kbTimer); kbTimer = setTimeout(keepFocusVisible, delay); }
+        if (vv) {
+            vv.addEventListener('resize', () => scheduleKeepVisible(60));
+            document.addEventListener('focusin', (e) => { if (isTypingBox(e.target)) scheduleKeepVisible(350); });
+            document.addEventListener('focusout', () => setTimeout(() => { if (!isTypingBox(document.activeElement)) document.documentElement.classList.remove('kb-open'); }, 100));
+        }
+
         window.onload = function() {
             applyTheme();
-            applyCardScale();
+            applyCardScale(); applyTextScale();
+            try { history.replaceState(navState(), ''); } catch (e) {}
             try { migrateConsultEntries(); } catch (e) { console.error(e); }
             try { migrateRecs(); } catch (e) { console.error(e); }
             // One-time move of old shared notes into per-day notes, saved immediately.
