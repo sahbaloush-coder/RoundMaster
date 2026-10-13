@@ -30,6 +30,9 @@
             } catch (e) {}
             if (land === undefined) land = window.innerWidth > window.innerHeight;
             document.documentElement.classList.toggle('is-land', land);
+            // Phones (shorter screen side under 600px): tighter spacing everywhere
+            var sw = Math.min(screen.width || 9999, screen.height || 9999);
+            document.documentElement.classList.toggle('is-phone', sw < 600);
         }
         rmOrientation();
         try { if (screen.orientation) screen.orientation.addEventListener('change', rmOrientation); } catch (e) {}
@@ -94,6 +97,57 @@
         }
         /* While the on-screen keyboard is open, the record header stops sticking so it can't cover the box you're typing in */
         html.kb-open .rec-sticky { position: static !important; }
+
+
+        /* ===== Phones: tighter padding, margins and gaps so the text gets the space (portrait and landscape) ===== */
+        html.is-phone #app { padding: 0.35rem 0.4rem 0.6rem !important; }
+        html.is-phone #app-header { padding: 0.4rem 0.6rem; margin-bottom: 0.5rem; gap: 0.4rem; }
+        html.is-phone #app-header .w-10 { width: 2rem; height: 2rem; }
+        html.is-phone #main-view :is(.p-6, .sm\:p-6) { padding: 0.7rem; }
+        html.is-phone #main-view :is(.p-5, .sm\:p-5) { padding: 0.6rem; }
+        html.is-phone #main-view :is(.p-4, .sm\:p-4) { padding: 0.5rem; }
+        html.is-phone #main-view :is(.p-3, .sm\:p-3) { padding: 0.4rem; }
+        html.is-phone #main-view :is(.p-2\.5, .sm\:p-2\.5) { padding: 0.35rem; }
+        html.is-phone #main-view :is(.px-4, .sm\:px-4) { padding-left: 0.5rem; padding-right: 0.5rem; }
+        html.is-phone #main-view .px-3 { padding-left: 0.5rem; padding-right: 0.5rem; }
+        html.is-phone #main-view :is(.py-3, .sm\:py-3) { padding-top: 0.4rem; padding-bottom: 0.4rem; }
+        html.is-phone #main-view :is(.py-2, .sm\:py-2) { padding-top: 0.3rem; padding-bottom: 0.3rem; }
+        html.is-phone #main-view :is(.py-1\.5, .sm\:py-1\.5) { padding-top: 0.25rem; padding-bottom: 0.25rem; }
+        html.is-phone #main-view .py-12 { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+        html.is-phone #main-view :is(.space-y-6, .space-y-4, .sm\:space-y-4) > :not([hidden]) ~ :not([hidden]) { margin-top: 0.5rem; }
+        html.is-phone #main-view :is(.space-y-3, .sm\:space-y-3, .space-y-2\.5) > :not([hidden]) ~ :not([hidden]) { margin-top: 0.35rem; }
+        html.is-phone #main-view :is(.space-y-2, .sm\:space-y-2) > :not([hidden]) ~ :not([hidden]) { margin-top: 0.3rem; }
+        html.is-phone #main-view :is(.gap-6, .gap-4, .sm\:gap-4) { gap: 0.5rem; }
+        html.is-phone #main-view :is(.gap-3, .sm\:gap-3, .sm\:gap-2\.5) { gap: 0.35rem; }
+        html.is-phone #main-view :is(.mb-6, .mb-10, .mb-8) { margin-bottom: 0.75rem; }
+        html.is-phone #main-view :is(.mb-4, .mb-3, .sm\:mb-3) { margin-bottom: 0.4rem; }
+        html.is-phone #main-view :is(.mt-4, .mt-3) { margin-top: 0.4rem; }
+        html.is-phone #main-view :is(.pt-3, .pt-2) { padding-top: 0.3rem; }
+        html.is-phone #main-view :is(.pb-3, .sm\:pb-3) { padding-bottom: 0.35rem; }
+        html.is-phone #main-view .rounded-3xl { border-radius: 1rem; }
+        html.is-phone #main-view .rounded-2xl { border-radius: 0.75rem; }
+        html.is-phone #main-view .issues-plan-grid { gap: 0.5rem; }
+        html.is-phone .rec-sticky { padding-bottom: 0.35rem !important; }
+        /* pop-ups on phones */
+        html.is-phone #modal-container :is(.p-6, .p-5) { padding: 0.85rem; }
+        html.is-phone #modal-container .space-y-4 > :not([hidden]) ~ :not([hidden]) { margin-top: 0.6rem; }
+        html.is-phone #modal-container .rounded-3xl { border-radius: 1rem; }
+        html.is-phone #modal-container > .fixed { padding: 0.5rem; }
+        html.is-phone #modal-container .py-3 { padding-top: 0.45rem; padding-bottom: 0.45rem; }
+        html.is-phone #modal-container .gap-3 { gap: 0.45rem; }
+
+        /* Landscape phones / tablets: list card name on the left, info chips on the right; patient details in one row */
+        @media (min-width: 640px) {
+            html.is-land .lc-head { flex-direction: row; flex-wrap: wrap; justify-content: space-between; }
+            html.is-land .lc-name { justify-content: flex-start; }
+            html.is-land .lc-chips { justify-content: flex-end; }
+            html.is-land .det-grid { grid-template-columns: repeat(var(--n, 8), minmax(0, 1fr)); }
+        }
+
+        /* Every pop-up is either fully visible or scrolls: centred when it fits, starts at the top when it's taller than the screen */
+        #modal-container > .fixed { overflow-y: auto !important; align-items: flex-start !important; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
+        #modal-container > .fixed:not(.flex-col) > * { margin-top: auto !important; margin-bottom: auto !important; flex-shrink: 0; }
+        #modal-container > .fixed.flex-col { justify-content: safe center; }
 
         /* Date boxes: type the date, or tap the calendar button */
         .date-field { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -1560,7 +1614,7 @@
                         <span><strong>${esc(status.text)}.</strong> Your data is stored only in this browser. Export a backup so it isn't lost.</span>
                     </div>
                     <button onclick="openExportModal()" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-medium transition flex items-center gap-2">
-                        <i class="fa-solid fa-download"></i> Back up now
+                        <i class="fa-solid fa-file-import"></i> Back up now
                     </button>
                 </div>
             `;
@@ -1849,8 +1903,8 @@
                 <div data-sort-item data-id="${esc(p.id)}" class="size-scale flex rounded-2xl border-2 shadow-sm relative transition" style="background-color: ${cardDr ? drColor.bg : '#ffffff'}; border-color: ${cardDr ? drColor.border : '#e2e8f0'}">
                     ${gripHandle('rounded-r-2xl', cardDr ? { bg: 'rgba(255,255,255,0.45)', fg: drColor.border } : 'bg-slate-100 text-slate-400')}
                     <div class="flex-1 min-w-0 p-3 sm:p-4 flex flex-col space-y-2.5">
-                        <div class="flex flex-col lg:flex-row lg:flex-wrap items-center lg:justify-between gap-1.5">
-                            <div class="flex items-center justify-center lg:justify-start gap-1.5 flex-wrap">
+                        <div class="lc-head flex flex-col lg:flex-row lg:flex-wrap items-center lg:justify-between gap-1.5">
+                            <div class="lc-name flex items-center justify-center lg:justify-start gap-1.5 flex-wrap">
                                 ${entryTypeBadge(type)}
                                 ${isEditingMode ? `
                                     <input type="text" value="${esc(p.name)}" onchange="updatePatientField(${id}, 'name', this.value)" class="font-extrabold text-slate-900 text-[calc(28px*var(--ts,1))] bg-slate-50 border border-slate-300 rounded px-2 py-1 w-56">
@@ -1886,7 +1940,7 @@
                             </div>
 
                             <!-- Small info chips: MRN, age, gender, admitted/consult date, day count (centred on phones) -->
-                            <div class="flex items-center justify-center lg:justify-end gap-1 flex-wrap text-[calc(11px*var(--ts,1))]">
+                            <div class="lc-chips flex items-center justify-center lg:justify-end gap-1 flex-wrap text-[calc(11px*var(--ts,1))]">
                                 <div class="flex items-center gap-0.5 bg-white/70 px-1.5 py-0.5 rounded-lg border border-slate-200">
                                     <span class="text-[calc(9px*var(--ts,1))] text-slate-400">MRN</span>
                                     ${isEditingMode ? `
@@ -2431,7 +2485,7 @@
                             </button>
                         </div>
                     ` : ''}
-                    <div class="grid ${isConsult ? 'grid-cols-5 lg:grid-cols-10' : 'grid-cols-4 lg:grid-cols-8'} gap-1.5 sm:gap-2.5 text-center">
+                    <div class="det-grid grid ${isConsult ? 'grid-cols-5 lg:grid-cols-10' : 'grid-cols-4 lg:grid-cols-8'} gap-1.5 sm:gap-2.5 text-center" style="--n: ${isConsult ? 10 : 8}">
                         ${textBox('ward', 'Ward', `<span class="${V}">${orMissing(patient.ward)}</span>`, { cls: '', style: `background-color: ${esc(c.wardBg)}; color: ${esc(c.wardColor)}`, labelCls: 'opacity-75' })}
                         ${textBox('room', 'Room', `<span class="${V} text-slate-800">${orMissing(patient.room)}</span>`)}
                         ${textBox('bed', 'Bed', `<span class="${V} text-slate-800">${orMissing(patient.bed)}</span>`)}
@@ -5356,8 +5410,8 @@
                         subCls: 'text-amber-800/70',
                         sub: 'All data is stored only in this browser on this device. Export a backup regularly and keep it somewhere safe.',
                         actions: `
-                            <button onclick="openExportModal()" class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-download"></i> Export Backup</button>
-                            <button onclick="triggerImport()" class="px-3 py-2 bg-white hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-upload"></i> Import Backup</button>`,
+                            <button onclick="openExportModal()" class="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-file-import"></i> Export Backup</button>
+                            <button onclick="triggerImport()" class="px-3 py-2 bg-white hover:bg-amber-100 border border-amber-200 text-amber-800 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-file-export"></i> Import Backup</button>`,
                         body: `
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                                 <div class="p-3 rounded-2xl bg-white/70 border border-amber-200">
@@ -6712,7 +6766,7 @@
                         <p id="modal-export-error" class="hidden text-xs text-rose-600"></p>
                         <div class="flex justify-end space-x-2 pt-2">
                             <button onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm">Cancel</button>
-                            <button id="modal-export-btn" onclick="submitExport()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium flex items-center gap-2"><i class="fa-solid fa-download"></i> Download Backup</button>
+                            <button id="modal-export-btn" onclick="submitExport()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-medium flex items-center gap-2"><i class="fa-solid fa-file-import"></i> Download Backup</button>
                         </div>
                     </div>
                 </div>
