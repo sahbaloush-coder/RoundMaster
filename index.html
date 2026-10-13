@@ -149,6 +149,16 @@
         #modal-container > .fixed:not(.flex-col) > * { margin-top: auto !important; margin-bottom: auto !important; flex-shrink: 0; }
         #modal-container > .fixed.flex-col { justify-content: safe center; }
 
+
+        /* Colour picker (Android / computers; iPhone & iPad keep their own) */
+        .cp-sv { position: relative; height: 150px; border-radius: 10px; touch-action: none; cursor: crosshair;
+                 background-image: linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, rgba(255,255,255,0)); }
+        .cp-hue { position: relative; height: 14px; border-radius: 7px; touch-action: none; cursor: pointer;
+                  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+        .cp-knob { position: absolute; width: 18px; height: 18px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.35), 0 1px 4px rgba(0,0,0,.4); transform: translate(-50%, -50%); pointer-events: none; }
+        .cp-hue .cp-knob { top: 50%; }
+        .cp-num { width: 100%; text-align: center; padding: 0.35rem 0.25rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; background: #f8fafc; font-weight: 600; font-size: 14px; }
+
         /* Date boxes: type the date, or tap the calendar button */
         .date-field { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; }
         .date-field .date-field-text { background: transparent; border: 0; outline: none; padding: 0; margin: 0; font: inherit; color: inherit; width: 10.5ch; min-width: 0; }
@@ -315,12 +325,16 @@
                 { id: 'g4', name: 'Expired', color: '#a81100', fontColor: '#ffffff' }
             ],
             tags: [
-                { id: 't1', name: 'For D/C', color: '#30974a', fontColor: '#ffffff' },
-                { id: 't2', name: 'For ToC', color: '#adb0ff', fontColor: '#1e293b' },
+                { id: 't1', name: 'For D/C', color: '#54c06f', fontColor: '#ffffff' },
+                { id: 't2', name: 'For ToC', color: '#54c06f', fontColor: '#ffffff' },
                 { id: 't3', name: 'New', color: '#fed681', fontColor: '#1e293b' },
                 { id: 't4', name: 'Post ICU', color: '#0797a2', fontColor: '#ffffff' },
-                { id: 't5', name: 'Sick', color: '#fca5a5', fontColor: '#7f1d1d' }
+                { id: 't5', name: 'Sick', color: '#fca5a5', fontColor: '#7f1d1d' },
+                { id: 't6', name: 'Endorse', color: '#c800ff', fontColor: '#ffffff' },
+                { id: 't7', name: '✓ Done', color: '#06601d', fontColor: '#ffffff' }
             ],
+            // Automatic tags (Settings → Tags): which tag each rule adds
+            autoTags: { endorse: 't6', done: 't7' },
             colorCodes: [
                 { id: 'c1', name: 'Antibiotics', color: '#661daf' },
                 { id: 'c2', name: 'Diuretics', color: '#e8bd21' },
@@ -362,7 +376,9 @@
                 }
             },
             getSettings() {
-                return this.get('settings', DEFAULT_SETTINGS);
+                const st = this.get('settings', DEFAULT_SETTINGS);
+                if (st && !st.autoTags) st.autoTags = guessAutoTags(st.tags || []);
+                return st;
             },
             saveSettings(settings) {
                 this.set('settings', settings);
@@ -703,14 +719,18 @@
             normalizeImages(p);
             if (!p.dayInfo) p.dayInfo = {};
             const src = getDayInfo(p, fromDate);
+            // "Done" belongs to one day's Daily Care, so it isn't copied to the next day.
+            const doneName = autoTagName(Store.getSettings(), 'done');
             if (!p.dayInfo[toDate]) {
                 p.dayInfo[toDate] = clone(src);
+                if (doneName) p.dayInfo[toDate].tags = (p.dayInfo[toDate].tags || []).filter(t => t !== doneName);
+                if (p.dayInfo[toDate].autoTagState) delete p.dayInfo[toDate].autoTagState.done;
             } else {
                 const dst = p.dayInfo[toDate];
                 ['age', 'ward', 'room', 'bed', 'goalsOfCare', 'physician', 'consultant', 'admissionDate', 'consultDate', 'caseSummary'].forEach(f => {
                     if (!String(dst[f] || '').trim() && src[f]) dst[f] = src[f];
                 });
-                dst.tags = [...new Set([...(dst.tags || []), ...(src.tags || []).filter(t => !isNewTag(t) && !isNewMarker(t))])];
+                dst.tags = [...new Set([...(dst.tags || []), ...(src.tags || []).filter(t => !isNewTag(t) && !isNewMarker(t) && t !== doneName)])];
                 const have = new Set((dst.medicalBackground || []).map(m => m.id));
                 dst.medicalBackground = starredFirst([...(dst.medicalBackground || []), ...clone(src.medicalBackground).filter(m => !have.has(m.id))]);
             }
@@ -744,6 +764,8 @@
                 if (!dst.dcPlan.some(x => norm(x.text) === norm(pl.text))) dst.dcPlan.push({ ...clone(pl), completed: false });
             });
             mergeInvestigationPanels(note.investigations || [], dst.investigations);
+            // Consult impression carries over (unless the next day already has its own)
+            if (String(note.impression || '').trim() && !String(dst.impression || '').trim()) dst.impression = note.impression;
         }
 
         // When a patient is taken off a list, that entry's details and notes are deleted too, so nothing
@@ -797,6 +819,79 @@
         // "New" is shown automatically on a patient's first day on a list. It can also be ticked on or off
         // by hand for one entry: saved as the markers "new@<entry>" / "!new@<entry>", so it never carries over.
         function isNewMarker(t) { return /^!?new@/i.test(String(t || '')); }
+        /* ---------- Automatic tags ----------
+           Endorse: added when a Plan or Discharge Plan line contains "endorse".
+           Done:    added when every Daily Care box is ticked.
+           Each is added once, when its condition becomes true. Unticking / editing never removes it,
+           and if you remove the tag yourself it stays off (until the condition turns false and true again). */
+        const AUTO_TAG_RULES = {
+            endorse: { label: 'Endorse', desc: 'A Plan or Discharge Plan line contains the word "endorse"' },
+            done: { label: 'Done', desc: 'All Daily Care boxes are ticked' }
+        };
+        // One-time fix: the tag first saved as "Endrose" is "Endorse" (settings and every patient day).
+        function fixEndorseSpelling() {
+            const st = Store.getSettings();
+            const bad = (st.tags || []).filter(t => /^\s*endrose\s*$/i.test(t.name));
+            if (!bad.length) return;
+            const names = bad.map(t => t.name);
+            bad.forEach(t => { t.name = 'Endorse'; });
+            Store.saveSettings(st);
+            const all = Store.getPatients();
+            all.forEach(p => Object.values(p.dayInfo || {}).forEach(info => {
+                if (Array.isArray(info.tags)) info.tags = [...new Set(info.tags.map(t => names.includes(t) ? 'Endorse' : t))];
+            }));
+            Store.savePatients(all);
+        }
+        function guessAutoTags(tags) {
+            const letters = (n) => String(n || '').toLowerCase().replace(/[^a-z]/g, '');
+            const find = (names) => { const t = tags.find(t => names.includes(letters(t.name))); return t ? t.id : null; };
+            return { endorse: find(['endorse', 'endrose', 'endorsed']), done: find(['done']) };
+        }
+        function autoTagName(settings, rule) {
+            const id = (settings.autoTags || {})[rule];
+            const t = id && settings.tags.find(x => x.id === id);
+            return t ? t.name : null;
+        }
+        const ENDORSE_RE = /endorse/i;
+        function autoTagConditions(p, key, careFlags) {
+            const note = getDayNote(p, key) || {};
+            const endorse = [...(note.plan || []), ...(note.dcPlan || [])].some(pl => ENDORSE_RE.test(pl.text || ''));
+            const need = keyType(key) === 'consult' ? ['reviewDone', 'planDone'] : ['vitalsDone', 'labsDone', 'planDone'];
+            const f = careFlags || {};
+            return { endorse, done: need.every(k => f[k]) };
+        }
+        // Checks the patients on the lists for the day being viewed (and the open record); saves only if something changed.
+        function runAutoTags() {
+            const settings = Store.getSettings();
+            if (!autoTagName(settings, 'endorse') && !autoTagName(settings, 'done')) return;
+            const records = Store.getDailyRecords();
+            const day = records[currentViewDate] || {};
+            const pairs = [];
+            (day.inpatientIds || []).forEach(id => pairs.push([id, 'inpatient']));
+            (day.consultIds || []).forEach(id => pairs.push([id, 'consult']));
+            if (currentRoute === 'patient_file' && activePatientId && !pairs.some(([id, t]) => id === activePatientId && t === currentEntryType)) pairs.push([activePatientId, currentEntryType]);
+            if (!pairs.length) return;
+            const allPatients = Store.getPatients();
+            let changed = false;
+            pairs.forEach(([id, type]) => {
+                const p = allPatients.find(x => x.id === id);
+                if (!p) return;
+                const key = entryKey(currentViewDate, type);
+                if (!getDayNote(p, key) && !(p.dayInfo || {})[key]) return;
+                const cond = autoTagConditions(p, key, (day.careFlags || {})[careKey(id, type)]);
+                const info = infoFor(allPatients, id, key);
+                const state = info.autoTagState || {};
+                Object.keys(AUTO_TAG_RULES).forEach(rule => {
+                    const name = autoTagName(settings, rule);
+                    const now = !!cond[rule];
+                    if (name && now && !state[rule] && !(info.tags || []).includes(name)) { info.tags = [...(info.tags || []), name]; changed = true; }
+                    if (!!state[rule] !== now) { state[rule] = now; changed = true; }
+                });
+                info.autoTagState = state;
+            });
+            if (changed) Store.savePatients(allPatients);
+        }
+
         function displayTags(p, tags, date, type) {
             const key = entryKey(date, type);
             const list = tags || [];
@@ -872,6 +967,11 @@
         }
         let navFromHistory = false;
         window.addEventListener('popstate', (e) => {
+            if (document.getElementById('color-picker')) {
+                closeColorPicker(false);
+                try { history.pushState(navState(), ''); } catch (err) {}
+                return;
+            }
             const container = document.getElementById('modal-container');
             if (container && container.innerHTML.trim()) {
                 if (typeof dcDraft !== 'undefined') dcDraft = null;
@@ -923,6 +1023,7 @@
             if (currentRoute !== 'patient_file') viewEntryKey = null; // leaving the entry resets its boxes
             main.style.minHeight = main.offsetHeight + 'px';
             closeModal();
+            try { fixEndorseSpelling(); runAutoTags(); } catch (e) { console.error(e); }
 
             switch(currentRoute) {
                 case 'home':
@@ -1670,8 +1771,32 @@
                             <p class="text-xs text-slate-400 mt-1">Customize wards, goals of care, tags, color codes, and backups.</p>
                         </div>
                     </div>
+
+                    <!-- Team and MRP: used by Extract Note -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-5xl mt-6">
+                        ${[['team', 'Team', 'fa-people-group', 'bg-teal-50 text-teal-600', 'e.g. Medicine A'],
+                           ['mrp', 'MRP', 'fa-user-doctor', 'bg-sky-50 text-sky-600', 'Name']].map(([k, label, icon, iconCls, ph]) => `
+                            <label class="bg-white p-4 rounded-3xl border border-slate-200 shadow-sm flex items-center gap-3 cursor-text focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100 transition">
+                                <span class="w-12 h-12 shrink-0 rounded-2xl ${iconCls} flex items-center justify-center text-xl"><i class="fa-solid ${icon}"></i></span>
+                                <span class="flex-1 min-w-0">
+                                    <span class="block text-xs font-bold text-slate-500 uppercase tracking-wider">${label}</span>
+                                    <span class="flex items-baseline gap-1.5">${k === 'mrp' ? '<span class="text-lg font-bold text-slate-400">Dr.</span>' : ''}<input type="text" value="${esc(Store.getSettings()[k] || '')}" onchange="this.value = setTeamInfo('${k}', this.value)" onkeydown="if (event.key === 'Enter') this.blur()" class="w-full bg-transparent border-0 border-b border-dashed border-slate-300 focus:border-indigo-400 px-0 py-1 text-lg font-bold text-slate-800 focus:outline-none placeholder:text-slate-300 placeholder:font-medium placeholder:text-base" placeholder="${ph}"></span>
+                                </span>
+                            </label>`).join('')}
+                    </div>
                 </div>
             `;
+        }
+
+        // Team / MRP (dashboard). Saved with the settings, so they go into backups too.
+        function setTeamInfo(key, value) {
+            const st = Store.getSettings();
+            let v = String(value || '').trim();
+            if (key === 'mrp') v = v.replace(/^dr\.?\s+/i, ''); // the note already writes "Dr."
+            st[key] = v;
+            Store.saveSettings(st);
+            showToast(v ? `${key === 'mrp' ? 'MRP' : 'Team'} set to ${key === 'mrp' ? 'Dr. ' : ''}${v}` : `${key === 'mrp' ? 'MRP' : 'Team'} cleared`);
+            return v;
         }
 
         /* =========================================================
@@ -2023,7 +2148,7 @@
                                     `).join('')}
                                 </div>
                                 <div class="md:col-span-4 flex items-center gap-1.5 justify-end flex-wrap">
-                                    ${isConsult ? memoBtn(`openCaseSummaryModal(${esc(JSON.stringify(p.id))})`, 'Case Summary', 'fa-file-lines', caseSummary, 'bg-sky-500 text-white border-sky-500 hover:bg-sky-600', 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100') : ''}
+                                    ${memoBtn(`openCaseSummaryModal(${esc(JSON.stringify(p.id))})`, 'Case Summary', 'fa-file-lines', caseSummary, 'bg-sky-500 text-white border-sky-500 hover:bg-sky-600', 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100')}
                                     ${memoBtn(`openMemoModal(${esc(JSON.stringify(p.id))})`, isConsult ? 'Updates' : 'Memo', 'fa-note-sticky', dailyMemo, 'bg-amber-400 text-amber-950 border-amber-400 hover:bg-amber-500', 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100')}
                                     ${memoBtn(`openEmrMemoModal(${esc(JSON.stringify(p.id))})`, 'EMR Memo', 'fa-file-medical', emrMemo, 'bg-pink-500 text-white border-pink-500 hover:bg-pink-600', 'bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100')}
                                     ${isEditingMode ? `
@@ -3052,10 +3177,13 @@
             };
             const issues = note.activeIssues || [];
             const resolved = note.resolvedIssues || [];
+            const st = Store.getSettings();
+            const TEAM = () => st.team ? NT(st.team) : NPH('Team');
+            const MRP = () => st.mrp ? NT(st.mrp) : NPH('MRP');
             const header = (teamWord) => {
                 L.push(NTEXT('________________________'));
                 L.push(NTEXT(p.name || ''));
-                L.push(NL([NPH('TEAM'), NT(teamWord), NPH('NAME')], { b: true, u: true, center: true }));
+                L.push(NL([TEAM(), NT(teamWord), MRP()], { b: true, u: true, center: true }));
                 blank();
                 L.push(NTEXT('CASE SUMMARY', H));
                 L.push(NL([NT('This is a '), NT(age || '—'), NT(', '), NT(gender || '—'), NT(', patient. Known case of:')]));
@@ -3087,7 +3215,8 @@
                 header(' Rounds with Dr. ');
                 mbList.forEach(m => L.push(NTEXT('• ' + mbText(m))));
                 blank();
-                L.push(NL([NT(`Admitted on [${p.admissionDate ? fmtDate(p.admissionDate) : '—'}] as a case of `), NPH('ISSUE'), NT('.')]));
+                const inSummary = String(p.caseSummary || '').trim().replace(/\s*\n+\s*/g, ' ').replace(/[.\s]+$/, '');
+                L.push(NL([NT(`Admitted on [${p.admissionDate ? fmtDate(p.admissionDate) : '—'}] as a case of `), inSummary ? NT(inSummary) : NPH('Summary'), NT('.')]));
                 blank(2);
                 L.push(NTEXT('ACTIVE ISSUES', H));
                 issues.forEach((ai, i) => {
@@ -3099,7 +3228,7 @@
                 resolvedSection(true, 1);
                 assessment();
                 blank(2);
-                L.push(NL([NT('PLAN as discussed with Dr. '), NPH('NAME')], H));
+                L.push(NL([NT('PLAN as discussed with Dr. '), MRP()], H));
                 bulletLines(note.plan);
                 blank();
                 L.push(NTEXT('DISCHARGE PLAN', H));
@@ -3126,7 +3255,7 @@
                 const imp = textLines(note.impression);
                 if (imp.length) L.push(...imp); else L.push(NL([NPH('Impression')]));
                 blank();
-                L.push(NL([NT('RECOMMENDATIONS as discussed with Dr. '), NPH('NAME')], H));
+                L.push(NL([NT('RECOMMENDATIONS as discussed with Dr. '), MRP()], H));
                 bulletLines(note.plan);
                 blank();
                 L.push(NTEXT(note.discharge && note.discharge.to === 'signoff' ? 'We will sign off.' : 'We will follow.'));
@@ -4678,7 +4807,7 @@
         //       'chips' = collapsed / empty memos as small buttons (stacked beside Medical Background).
         function renderMemoRow(rawPatient, note, pid, isConsult = false, caseSummary = '', part = 'boxes') {
             const memos = [];
-            if (isConsult) memos.push({ kind: 'summary', label: 'Case Summary', chip: 'Summary', icon: 'fa-file-lines', text: (caseSummary || '').trim(), edit: 'openCaseSummaryModal',
+            memos.push({ kind: 'summary', label: 'Case Summary', chip: 'Summary', icon: 'fa-file-lines', text: (caseSummary || '').trim(), edit: 'openCaseSummaryModal',
                 box: 'bg-sky-50 border-sky-200 text-sky-950', accent: 'text-sky-600', on: 'bg-sky-500 text-white border-sky-500 hover:bg-sky-600', off: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100' });
             const dailyLabel = isConsult ? 'Updates' : 'Daily Memo';
             memos.push({ kind: 'daily', label: dailyLabel, icon: 'fa-note-sticky', text: (note.memo || '').trim(), edit: 'openMemoModal', dated: true,
@@ -5232,6 +5361,29 @@
             Store.set('settings_closed', settingsClosed);
             renderApp();
         }
+        function renderAutoTagSettings(settings) {
+            const at = settings.autoTags || {};
+            return `
+                <div class="mt-4 pt-3 border-t border-slate-100 space-y-2">
+                    <div class="text-xs font-bold text-slate-600 flex items-center gap-1.5"><i class="fa-solid fa-wand-magic-sparkles text-pink-400"></i> Automatic tags
+                        <span class="font-normal text-slate-400">— added once when the rule is met; you can still remove or add them yourself</span></div>
+                    ${Object.entries(AUTO_TAG_RULES).map(([rule, r]) => `
+                        <label class="flex flex-wrap items-center gap-2 text-xs">
+                            <span class="text-slate-600 flex-1 min-w-[12rem]">${esc(r.desc)} → add</span>
+                            <select onchange="setAutoTag('${rule}', this.value)" class="px-2 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold">
+                                <option value="">(off)</option>
+                                ${settings.tags.map(t => `<option value="${esc(t.id)}" ${at[rule] === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}
+                            </select>
+                        </label>`).join('')}
+                </div>`;
+        }
+        function setAutoTag(rule, tagId) {
+            const st = Store.getSettings();
+            st.autoTags = { ...(st.autoTags || {}), [rule]: tagId || null };
+            Store.saveSettings(st);
+            renderApp();
+        }
+
         function settingsCard(id, { title, icon = '', sub = '', actions = '', body = '', box = 'bg-white border border-slate-200', titleCls = 'text-slate-800', subCls = 'text-slate-400' }) {
             const open = settingsIsOpen(id);
             return `
@@ -5449,7 +5601,8 @@
                                         </div>
                                     </div>
                                 `).join('')}
-                            </div>`
+                            </div>
+                            ${key === 'tags' ? renderAutoTagSettings(settings) : ''}`
                     })).join('')}
 
                     ${settingsCard('colorcodes', {
@@ -5502,7 +5655,7 @@
         // the investigations box and every investigation card.
         function recordAnyOpen(p, note, isConsult) {
             const memoOpen = ['daily', 'emr', 'summary'].some(k => !memoCollapsed[k]) &&
-                ((note && (note.memo || '').trim()) || (p.emrMemo || '').trim() || (isConsult && String((getDayInfo(p, curKey()) || {}).caseSummary || '').trim()));
+                ((note && (note.memo || '').trim()) || (p.emrMemo || '').trim() || String((getDayInfo(p, curKey()) || {}).caseSummary || '').trim());
             const cards = (note && note.investigations) || [];
             return !isMedicalBgCollapsed || !!memoOpen || !invBoxCollapsed || cards.some(x => !x.collapsed);
         }
@@ -6396,6 +6549,17 @@
 
             const settings = Store.getSettings();
             if (settings[category] && settings[category][idx]) {
+                const oldName = settings[category][idx].name;
+                // A rename also updates every patient day that uses the old name
+                if (oldName !== name && ['tags', 'wards', 'goalsOfCare'].includes(category)) {
+                    const all = Store.getPatients();
+                    const field = category === 'tags' ? 'tags' : category === 'wards' ? 'ward' : 'goalsOfCare';
+                    all.forEach(p => Object.values(p.dayInfo || {}).forEach(info => {
+                        if (field === 'tags') { if (Array.isArray(info.tags)) info.tags = info.tags.map(t => t === oldName ? name : t); }
+                        else if (String(info[field] || '').toLowerCase() === oldName.toLowerCase()) info[field] = name;
+                    }));
+                    Store.savePatients(all);
+                }
                 settings[category][idx].name = name;
                 settings[category][idx].color = color;
                 if (fontColorEl) settings[category][idx].fontColor = fontColor;
@@ -6650,6 +6814,10 @@
             const note = dayNoteFor(allPatients, patientId);
             if (!note) return;
             note.impression = value;
+            // ...and to the copies on later days; earlier days keep what they had
+            const p = allPatients.find(x => x.id === patientId);
+            const key = curKey();
+            sameTypeKeys(p.days, key).filter(d => d > key).forEach(d => { if (p.days[d]) p.days[d].impression = value; });
             Store.savePatients(allPatients);
         }
 
@@ -7210,6 +7378,121 @@
         }
 
         /* =========================================================
+           COLOUR PICKER
+           Replaces the browser's colour chooser on Android and computers (iPhone / iPad keep theirs):
+           shade square, hue bar, eyedropper (where supported), R G B boxes and a Hex box.
+           ========================================================= */
+        const cpHex2rgb = (h) => { const m = /^#?([0-9a-f]{6})$/i.exec(String(h).trim()) || /^#?([0-9a-f]{3})$/i.exec(String(h).trim()); if (!m) return null; let x = m[1]; if (x.length === 3) x = x.split('').map(c => c + c).join(''); return [0, 2, 4].map(i => parseInt(x.slice(i, i + 2), 16)); };
+        const cpRgb2hex = (r, g, b) => '#' + [r, g, b].map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join('');
+        function cpRgb2hsv(r, g, b) {
+            r /= 255; g /= 255; b /= 255;
+            const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+            let h = 0;
+            if (d) h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+            return [((h * 60) + 360) % 360, mx ? d / mx : 0, mx];
+        }
+        function cpHsv2rgb(h, s, v) {
+            const f = (n) => { const k = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(k, 4 - k, 1)); };
+            return [f(5) * 255, f(3) * 255, f(1) * 255];
+        }
+        let cpState = null;
+        function openColorPicker(input) {
+            const rgb = cpHex2rgb(input.value) || [224, 242, 254];
+            const [h, sv, v] = cpRgb2hsv(...rgb);
+            cpState = { input, h, s: sv, v };
+            const st = Store.getSettings();
+            const used = [...new Set([...(st.wards || []), ...(st.goalsOfCare || []), ...(st.tags || []), ...(st.colorCodes || [])].map(x => String(x.color || '').toLowerCase()).filter(c => /^#[0-9a-f]{6}$/.test(c)))].slice(0, 18);
+            const box = document.createElement('div');
+            box.id = 'color-picker';
+            box.className = 'fixed inset-0 z-[60] flex items-center justify-center p-3 bg-slate-900/40';
+            box.innerHTML = `
+                <div class="bg-white rounded-2xl shadow-2xl w-full max-w-[300px] p-3 space-y-3" onclick="event.stopPropagation()">
+                    <div class="cp-sv" id="cp-sv"><div class="cp-knob" id="cp-sv-knob"></div></div>
+                    <div class="flex items-center gap-3">
+                        ${window.EyeDropper ? `<button type="button" onclick="cpEyedrop()" class="w-8 h-8 shrink-0 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600" title="Pick a colour from the screen"><i class="fa-solid fa-eye-dropper"></i></button>` : ''}
+                        <div id="cp-preview" class="w-8 h-8 shrink-0 rounded-full border border-slate-200"></div>
+                        <div class="cp-hue flex-1" id="cp-hue"><div class="cp-knob" id="cp-hue-knob"></div></div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        ${['R', 'G', 'B'].map((c, i) => `<label class="block"><input id="cp-${c}" type="text" inputmode="numeric" maxlength="3" class="cp-num" oninput="cpFromRgb()"><span class="block text-[11px] font-semibold text-slate-500 mt-0.5">${c}</span></label>`).join('')}
+                    </div>
+                    <label class="block text-center"><input id="cp-hex" type="text" maxlength="7" autocomplete="off" autocapitalize="off" spellcheck="false" class="cp-num uppercase tracking-wider" oninput="cpFromHex()"><span class="block text-[11px] font-semibold text-slate-500 mt-0.5">HEX</span></label>
+                    ${used.length ? `<div class="flex flex-wrap gap-1.5 justify-center">${used.map(c => `<button type="button" onclick="cpSetHex('${c}')" class="w-6 h-6 rounded-full border border-slate-200" style="background:${c}" title="${c}"></button>`).join('')}</div>` : ''}
+                    <div class="flex justify-end gap-2 pt-1">
+                        <button type="button" onclick="closeColorPicker(false)" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm font-medium text-slate-700">Cancel</button>
+                        <button type="button" onclick="closeColorPicker(true)" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-semibold">OK</button>
+                    </div>
+                </div>`;
+            box.addEventListener('click', () => closeColorPicker(false));
+            document.body.appendChild(box);
+            const drag = (el, onMove) => {
+                el.addEventListener('pointerdown', (e) => {
+                    e.preventDefault();
+                    try { el.setPointerCapture(e.pointerId); } catch (err) {}
+                    const move = (ev) => { const r = el.getBoundingClientRect(); onMove(Math.max(0, Math.min(1, (ev.clientX - r.left) / r.width)), Math.max(0, Math.min(1, (ev.clientY - r.top) / r.height))); };
+                    move(e);
+                    const up = () => { el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
+                    el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+                });
+            };
+            drag(document.getElementById('cp-sv'), (x, y) => { cpState.s = x; cpState.v = 1 - y; cpPaint(); });
+            drag(document.getElementById('cp-hue'), (x) => { cpState.h = x * 359.9; cpPaint(); });
+            cpPaint();
+        }
+        // Redraw; `skip` = the box being typed in (so typing isn't overwritten)
+        function cpPaint(skip) {
+            const { h, s, v } = cpState;
+            const rgb = cpHsv2rgb(h, s, v), hex = cpRgb2hex(...rgb);
+            const sv = document.getElementById('cp-sv'); if (!sv) return;
+            sv.style.backgroundColor = cpRgb2hex(...cpHsv2rgb(h, 1, 1));
+            Object.assign(document.getElementById('cp-sv-knob').style, { left: (s * 100) + '%', top: ((1 - v) * 100) + '%', background: hex });
+            Object.assign(document.getElementById('cp-hue-knob').style, { left: (h / 360 * 100) + '%', background: cpRgb2hex(...cpHsv2rgb(h, 1, 1)) });
+            document.getElementById('cp-preview').style.background = hex;
+            ['R', 'G', 'B'].forEach((c, i) => { if (skip !== 'rgb') document.getElementById('cp-' + c).value = Math.round(rgb[i]); });
+            if (skip !== 'hex') document.getElementById('cp-hex').value = hex.toUpperCase();
+        }
+        function cpSetHex(hex) {
+            const rgb = cpHex2rgb(hex); if (!rgb) return false;
+            const [h, s, v] = cpRgb2hsv(...rgb);
+            if (s > 0 && v > 0) cpState.h = h; // keep the hue when picking grey / black
+            cpState.s = s; cpState.v = v;
+            return true;
+        }
+        function cpFromHex() {
+            const val = document.getElementById('cp-hex').value.trim();
+            if ((/^#?[0-9a-f]{6}$/i.test(val) || /^#?[0-9a-f]{3}$/i.test(val)) && cpSetHex(val)) cpPaint('hex');
+        }
+        function cpFromRgb() {
+            const vals = ['R', 'G', 'B'].map(c => document.getElementById('cp-' + c).value.trim());
+            if (vals.some(x => !/^\d{1,3}$/.test(x) || +x > 255)) return;
+            cpSetHex(cpRgb2hex(...vals.map(Number)));
+            cpPaint('rgb');
+        }
+        async function cpEyedrop() {
+            try { const r = await new window.EyeDropper().open(); if (r && cpSetHex(r.sRGBHex)) cpPaint(); } catch (e) {}
+        }
+        function closeColorPicker(apply) {
+            const box = document.getElementById('color-picker');
+            if (apply && cpState) {
+                const hex = cpRgb2hex(...cpHsv2rgb(cpState.h, cpState.s, cpState.v));
+                cpState.input.value = hex;
+                cpState.input.dispatchEvent(new Event('input', { bubbles: true }));
+                cpState.input.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            if (box) box.remove();
+            cpState = null;
+        }
+        if (!IS_IOS_DEVICE()) {
+            document.addEventListener('click', (e) => {
+                const el = e.target && e.target.closest ? e.target.closest('input[type="color"]') : null;
+                if (!el || el.disabled) return;
+                e.preventDefault();
+                openColorPicker(el);
+            }, true);
+        }
+        function IS_IOS_DEVICE() { return /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1); }
+
+        /* =========================================================
            ON-SCREEN KEYBOARD
            1) Mouse / hardware keyboard in use → typing boxes open WITHOUT the on-screen keyboard
               (inputmode="none"). Touching the screen brings the on-screen keyboard back.
@@ -7283,6 +7566,7 @@
         window.onload = function() {
             applyTheme();
             applyCardScale(); applyTextScale();
+            try { fixEndorseSpelling(); } catch (e) { console.error(e); }
             try { history.replaceState(navState(), ''); } catch (e) {}
             try { migrateConsultEntries(); } catch (e) { console.error(e); }
             try { migrateRecs(); } catch (e) { console.error(e); }
