@@ -59,7 +59,7 @@
         textarea.auto-grow, textarea.cult-input { overflow-y: hidden; }
         .lab-range { font-size: calc(11px * var(--ts, 1)); zoom: 0.82; margin-top: 1px; }
         .note-ph { background: #dcfce7; color: #166534; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -1px 0 #86efac; }
-        .note-ph.filled { background: transparent; color: inherit; padding: 0; box-shadow: none; }
+        .note-ph.filled { background: transparent; color: #b45309; padding: 0; box-shadow: none; }
         .note-user { color: #b45309; } /* your own additions to the note (amber in the app; copied as normal text) */
         [data-sort-item].dragging { opacity: 0.85; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18); position: relative; z-index: 30; }
         body.is-dragging, body.is-dragging * { user-select: none !important; -webkit-user-select: none !important; cursor: grabbing !important; }
@@ -3334,16 +3334,16 @@
                         <div id="note-extract" contenteditable="true" spellcheck="false" class="note-doc flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-[calc(14px*var(--ts,1))] leading-relaxed text-slate-900 focus:outline-none">${body}</div>
                     </div>
                 </div>`;
-            noteInitTracking();
+            noteInitModel(saved);
             updateNoteFields();
             showNoteSavedInfo(saved);
             const box = document.getElementById('note-extract');
             box.addEventListener('input', (e) => {
-                if (!e.isComposing) noteMarkUserText();
+                if (!e.isComposing) noteSync();
                 updateNoteFields();
                 setNoteDirty(true);
             });
-            box.addEventListener('compositionend', () => setTimeout(() => { noteMarkUserText(); updateNoteFields(); }, 0));
+            box.addEventListener('compositionend', () => setTimeout(() => { noteSync(); updateNoteFields(); }, 0));
             // Start on the first green field (on a keyboard device; phones would pop the keyboard up straight away)
             if (!saved && window.matchMedia && window.matchMedia('(pointer: fine)').matches) goToNoteField(1, true);
         }
@@ -3368,7 +3368,8 @@
             const allPatients = Store.getPatients();
             const note = dayNoteFor(allPatients, noteExtractFor, noteExtractKey);
             if (!note) return;
-            note.savedNote = { html: box.innerHTML, at: Date.now() };
+            noteSync();
+            note.savedNote = { html: box.innerHTML, model: packNoteModel(noteModel), at: Date.now() };
             Store.savePatients(allPatients);
             noteDirty = false;
             setNoteDirty(false);
@@ -3406,65 +3407,162 @@
             closeModal();
         }
 
-        /* Your additions show in grey. Every piece of the generated note is remembered; anything typed
-           into it (or on new lines) is wrapped as "your text". Works with phone keyboards that type whole words. */
-        let noteOrig = new WeakMap();
-        function noteInitTracking() {
-            noteOrig = new WeakMap();
-            const box = document.getElementById('note-extract');
-            if (!box) return;
-            const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
-            let n;
-            while ((n = w.nextNode())) { if (!n.parentElement.closest('.note-ph, .note-user')) noteOrig.set(n, n.data); }
-        }
-        function noteMarkUserText() {
-            const box = document.getElementById('note-extract');
-            if (!box) return;
+        /* Your additions show in amber.
+           The note keeps a model of its text where every character knows where it came from:
+           the form (plain / bold), a placeholder (green until it's replaced), or you (amber).
+           After each edit the new text is compared with the last one (anchored at the cursor),
+           so only what really changed becomes "yours" - whatever the keyboard does behind the scenes
+           (phone keyboards often delete and retype whole words). The page is then redrawn from the model. */
+        const NK = { F: -1, B: -2, U: -3, NL: -4 };
+        const NOTE_BASE_STYLE = 'white-space: pre-wrap; min-height: 1.4em; tab-size: 12';
+        let noteModel = null;
+        // Reads the note's text (lines joined by \n) and the cursor position; with collect=true also
+        // works out where each character came from (used to build the model from the page).
+        function readNote(box, collect = false) {
             const sel = window.getSelection();
-            const caretNode = sel.rangeCount && sel.isCollapsed ? sel.anchorNode : null, caretOff = sel.anchorOffset;
-            let newCaret = null;
-            const texts = [];
-            const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
-            let t;
-            while ((t = w.nextNode())) texts.push(t);
-            texts.forEach(n => {
-                const pe = n.parentElement;
-                if (!pe || pe.closest('.note-ph, .note-user')) return;
-                const cur = n.data;
-                if (noteOrig.has(n)) {
-                    const orig = noteOrig.get(n);
-                    if (cur === orig) return;
-                    let a = 0; while (a < cur.length && a < orig.length && cur[a] === orig[a]) a++;
-                    let z = 0; while (z < cur.length - a && z < orig.length - a && cur[cur.length - 1 - z] === orig[orig.length - 1 - z]) z++;
-                    const ins = cur.slice(a, cur.length - z);
-                    if (!ins.replace(/​/g, '')) { noteOrig.set(n, cur); return; } // only deleted something
-                    const tail = cur.slice(cur.length - z);
-                    const span = document.createElement('span');
-                    span.className = 'note-user';
-                    span.textContent = ins;
-                    n.data = cur.slice(0, a);
-                    noteOrig.set(n, n.data);
-                    n.after(span);
-                    let tailNode = null;
-                    if (tail) { tailNode = document.createTextNode(tail); span.after(tailNode); noteOrig.set(tailNode, tail); }
-                    if (n === caretNode) {
-                        if (caretOff <= a) newCaret = [n, caretOff];
-                        else if (caretOff <= a + ins.length) newCaret = [span.firstChild, caretOff - a];
-                        else newCaret = [tailNode || span.firstChild, tailNode ? caretOff - a - ins.length : ins.length];
+            const an = sel.rangeCount ? sel.anchorNode : null, ao = sel.anchorOffset;
+            const collapsed = !!(sel.rangeCount && sel.isCollapsed && an && box.contains(an));
+            const BLOCK = /^(DIV|P|LI|H[1-6]|UL|OL|BLOCKQUOTE|TABLE|TR)$/;
+            let out = '', needBreak = false, caret = -1;
+            const k = [], li = [], styles = [], labels = [], phMap = new Map();
+            let topStyle = -1;
+            const pushNL = () => { out += '\n'; if (collect) { k.push(NK.NL); li.push(-1); } };
+            const lineEmpty = () => !out.length || out[out.length - 1] === '\n';
+            function kindOf(el) {
+                if (el.closest('.note-user')) return NK.U;
+                const ph = el.closest('.note-ph');
+                if (ph) {
+                    if (!ph.classList.contains('filled') && ph.textContent.replace(/​/g, '') === ph.getAttribute('data-orig')) {
+                        if (!phMap.has(ph)) { phMap.set(ph, labels.length); labels.push(ph.getAttribute('data-orig')); }
+                        return phMap.get(ph);
                     }
-                    if (!n.data) { if (newCaret && newCaret[0] === n) newCaret = [span.firstChild, 0]; n.remove(); }
-                } else {
-                    if (!cur.replace(/​/g, '')) return; // empty helper
-                    const span = document.createElement('span');
-                    span.className = 'note-user';
-                    n.replaceWith(span);
-                    span.appendChild(n);
-                    if (n === caretNode) newCaret = [n, caretOff];
+                    return NK.U;
                 }
-            });
-            if (newCaret) {
-                try { const r = document.createRange(); r.setStart(newCaret[0], Math.min(newCaret[1], newCaret[0].length)); r.collapse(true); sel.removeAllRanges(); sel.addRange(r); } catch (e) {}
+                return el.closest('b, strong') ? NK.B : NK.F;
             }
+            function walk(node, top) {
+                const kids = node.childNodes;
+                for (let i = 0; i < kids.length; i++) {
+                    if (node === an && i === ao) caret = out.length + (needBreak ? 1 : 0);
+                    const c = kids[i];
+                    if (c.nodeType === 3) {
+                        const d = c.data.replace(/​/g, '');
+                        if (c === an) { if (needBreak && d) { pushNL(); needBreak = false; } caret = out.length + c.data.slice(0, ao).replace(/​/g, '').length; }
+                        if (!d) continue;
+                        if (needBreak) { pushNL(); needBreak = false; }
+                        out += d;
+                        if (collect) { const code = kindOf(c.parentElement); for (let x = 0; x < d.length; x++) { k.push(code); li.push(code === NK.U ? -1 : topStyle); } }
+                    } else if (c.nodeType === 1) {
+                        if (c.tagName === 'BR') {
+                            if (c.nextSibling) { if (needBreak) { pushNL(); needBreak = false; } pushNL(); }
+                        } else if (BLOCK.test(c.tagName)) {
+                            if (needBreak || !lineEmpty()) pushNL();
+                            needBreak = false;
+                            if (top && collect) { styles.push(c.getAttribute('style') || NOTE_BASE_STYLE); topStyle = styles.length - 1; }
+                            walk(c, false);
+                            needBreak = true;
+                        } else walk(c, false);
+                    }
+                }
+                if (node === an && ao === kids.length) caret = out.length;
+            }
+            walk(box, true);
+            const res = { text: out, caret: collapsed ? caret : -1 };
+            if (collect) Object.assign(res, { k, li, styles, labels });
+            return res;
+        }
+        function noteModelFromPage(box) {
+            const r = readNote(box, true);
+            return { text: r.text, k: r.k, li: r.li, styles: r.styles, labels: r.labels };
+        }
+        function renderNoteModel(m) {
+            const t = m.text, n = t.length;
+            const pos = m.labels.map(() => []);
+            for (let i = 0; i < n; i++) if (m.k[i] >= 0 && pos[m.k[i]]) pos[m.k[i]].push(i);
+            const intact = m.labels.map((lab, j) => { const p = pos[j]; return p.length > 0 && p.length === lab.length && p[p.length - 1] - p[0] + 1 === p.length && t.slice(p[0], p[0] + p.length) === lab; });
+            const cls = (x) => { const c = m.k[x]; if (c >= 0) return intact[c] ? 'p' + c : 'u'; return c === NK.B ? 'b' : c === NK.U ? 'u' : 'f'; };
+            const wrap = (c, str) => c === 'f' ? esc(str) : c === 'b' ? `<b>${esc(str)}</b>` : c === 'u' ? `<span class="note-user">${esc(str)}</span>`
+                : `<span class="note-ph" data-orig="${esc(m.labels[+c.slice(1)])}">${esc(str)}</span>`;
+            let html = '', i = 0;
+            while (true) {
+                let j = t.indexOf('\n', i); if (j < 0) j = n;
+                let st = NOTE_BASE_STYLE;
+                for (let x = i; x < j; x++) if (m.li[x] >= 0) { st = m.styles[m.li[x]] || NOTE_BASE_STYLE; break; }
+                let inner = '', x = i;
+                while (x < j) { const c = cls(x); let y = x + 1; while (y < j && cls(y) === c) y++; inner += wrap(c, t.slice(x, y)); x = y; }
+                html += `<div style="${esc(st)}">${inner || '<br>'}</div>`;
+                if (j >= n) break;
+                i = j + 1;
+            }
+            return html;
+        }
+        // Applies what changed since last time; new characters are yours.
+        function applyNoteDiff(m, cur, caret) {
+            const old = m.text;
+            if (cur === old) return false;
+            const n = cur.length, o = old.length;
+            let a = 0; const mx = Math.min(n, o); while (a < mx && cur[a] === old[a]) a++;
+            let z = 0; while (z < n - a && z < o - a && cur[n - 1 - z] === old[o - 1 - z]) z++;
+            if (caret >= 0 && caret <= n) {
+                const zc = n - caret; // the edit ends where the cursor is
+                if (zc <= o && cur.slice(caret) === old.slice(o - zc)) {
+                    let a2 = 0; const mx2 = Math.min(caret, o - zc); while (a2 < mx2 && cur[a2] === old[a2]) a2++;
+                    a = a2; z = zc;
+                }
+            }
+            const ins = cur.slice(a, n - z).split('');
+            m.k = m.k.slice(0, a).concat(ins.map(c => c === '\n' ? NK.NL : NK.U), m.k.slice(o - z));
+            m.li = m.li.slice(0, a).concat(ins.map(() => -1), m.li.slice(o - z));
+            m.text = cur;
+            return true;
+        }
+        function setNoteCaret(box, pos) {
+            const divs = [...box.children];
+            let start = 0;
+            for (const d of divs) {
+                const len = d.textContent.length;
+                if (pos <= start + len) {
+                    let rem = pos - start;
+                    const w = document.createTreeWalker(d, NodeFilter.SHOW_TEXT);
+                    let t, last = null;
+                    const r = document.createRange();
+                    while ((t = w.nextNode())) { last = t; if (rem <= t.length) { r.setStart(t, rem); break; } rem -= t.length; }
+                    if (!t) { if (last) r.setStart(last, last.length); else r.setStart(d, 0); }
+                    r.collapse(true);
+                    const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+                    return;
+                }
+                start += len + 1;
+            }
+        }
+        // After each edit: update the model, then redraw only the lines that look different.
+        function noteSync() {
+            const box = document.getElementById('note-extract');
+            if (!box || !noteModel) return;
+            const { text, caret } = readNote(box);
+            applyNoteDiff(noteModel, text, caret);
+            const tmp = document.createElement('div');
+            tmp.innerHTML = renderNoteModel(noteModel);
+            const want = [...tmp.children], have = [...box.childNodes];
+            let changed = false;
+            if (have.length !== want.length || have.some(nd => nd.nodeType !== 1 || nd.tagName !== 'DIV')) { box.replaceChildren(...want); changed = true; }
+            else want.forEach((w, i) => { if (have[i].outerHTML !== w.outerHTML) { have[i].replaceWith(w); changed = true; } });
+            if (changed && caret >= 0) setNoteCaret(box, caret);
+        }
+        // Saved notes keep their model in a compact form (runs of the same value).
+        const rle = (arr) => { const out = []; arr.forEach(v => { const l = out[out.length - 1]; if (l && l[0] === v) l[1]++; else out.push([v, 1]); }); return out; };
+        const unrle = (runs) => { const out = []; (runs || []).forEach(([v, c]) => { for (let i = 0; i < c; i++) out.push(v); }); return out; };
+        function packNoteModel(m) { return { text: m.text, k: rle(m.k), li: rle(m.li), styles: m.styles, labels: m.labels }; }
+        function unpackNoteModel(p) {
+            if (!p || typeof p.text !== 'string') return null;
+            const m = { text: p.text, k: unrle(p.k), li: unrle(p.li), styles: p.styles || [], labels: p.labels || [] };
+            return m.k.length === m.text.length && m.li.length === m.text.length ? m : null;
+        }
+        function noteInitModel(saved) {
+            const box = document.getElementById('note-extract');
+            if (!box) return;
+            noteModel = (saved && unpackNoteModel(saved.model)) || noteModelFromPage(box);
+            box.innerHTML = renderNoteModel(noteModel);
         }
 
         /* Green fields: filled ones turn back to normal black text; the counter shows how many are left. */
@@ -3576,7 +3674,7 @@
                 const t = document.createTextNode('\t');
                 r.insertNode(t);
                 caretAfter(t);
-                noteMarkUserText(); setNoteDirty(true);
+                noteSync(); setNoteDirty(true);
             }
             else if (e.key === 'Enter' && !e.shiftKey && isTouchDevice()) noteJumpKey(e, false);
         });
