@@ -2485,6 +2485,7 @@
                 router.navigate('patient_file', { patientId, date: currentViewDate, editTile: field || '@first' });
             } else {
                 editingTile = field || '@first';
+                if (coreCollapsed.details) { coreCollapsed.details = false; noteCoreChoice('details', false); }
                 renderApp();
             }
         }
@@ -2619,9 +2620,20 @@
                 <span class="text-[calc(12px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] font-bold text-indigo-800 leading-tight">${patient.consultDate ? esc(fmtDate(patient.consultDate)) : MISSING_MARK}</span>`,
                 { cls: 'bg-indigo-50', labelCls: 'text-indigo-600' }) : '';
 
+            const dcol = coreCollapsed.details && !editingTile;
+            // Folded: one slim line with the essentials
+            const loc = [patient.ward, patient.room, patient.bed].map(v => String(v || '').trim());
+            const brief = [loc.some(Boolean) ? loc.map(v => v || '—').join(' / ') : '',
+                ageText(patient, currentViewDate), patient.gender, patient.admissionDate ? 'Day ' + c.diffDays : '', patient.goalsOfCare,
+                (isConsult ? patient.consultant : patient.physician) ? 'Dr ' + (isConsult ? patient.consultant : patient.physician) : ''].filter(Boolean);
             return `
-                <div class="size-scale bg-white p-2.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
+                <div class="size-scale bg-white ${dcol ? 'px-3 py-2' : 'p-2.5 sm:p-4'} rounded-2xl border border-slate-200 shadow-sm">
                     ${wardDatalist()}
+                    <button onclick="toggleCoreBox('details')" class="w-full flex items-center gap-2 text-left ${dcol ? '' : 'mb-2'}">
+                        <span class="text-[calc(11px*var(--ts,1))] font-bold text-slate-500 uppercase tracking-wider shrink-0">Patient details</span>
+                        <i class="fa-solid fa-chevron-${dcol ? 'down' : 'up'} text-[calc(10px*var(--ts,1))] text-slate-400 shrink-0"></i>
+                        ${dcol ? `<span class="min-w-0 truncate text-[calc(12px*var(--ts,1))] font-semibold text-slate-700">${brief.map(esc).join('<span class="text-slate-300 font-normal mx-1.5">┃</span>')}</span>` : ''}
+                    </button>
                     ${missing.length ? `
                         <div class="mb-2 sm:mb-3">
                             <button data-tile-trigger onclick="${firstText ? `openDetailsEditor(null, '${firstText}')` : ''}" class="px-2.5 py-1 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-[calc(11px*var(--ts,1))] sm:text-xs font-semibold hover:bg-rose-100 flex items-center gap-2 text-left">
@@ -2630,7 +2642,7 @@
                             </button>
                         </div>
                     ` : ''}
-                    <div class="det-grid grid ${isConsult ? 'grid-cols-5 lg:grid-cols-10' : 'grid-cols-4 lg:grid-cols-8'} gap-1.5 sm:gap-2.5 text-center" style="--n: ${isConsult ? 10 : 8}">
+                    <div class="det-grid grid ${dcol ? 'hidden' : ''} ${isConsult ? 'grid-cols-5 lg:grid-cols-10' : 'grid-cols-4 lg:grid-cols-8'} gap-1.5 sm:gap-2.5 text-center" style="--n: ${isConsult ? 10 : 8}">
                         ${textBox('ward', 'Ward', `<span class="${V}">${orMissing(patient.ward)}</span>`, { cls: '', style: `background-color: ${esc(c.wardBg)}; color: ${esc(c.wardColor)}`, labelCls: 'opacity-75' })}
                         ${textBox('room', 'Room', `<span class="${V} text-slate-800">${orMissing(patient.room)}</span>`)}
                         ${textBox('bed', 'Bed', `<span class="${V} text-slate-800">${orMissing(patient.bed)}</span>`)}
@@ -2826,10 +2838,12 @@
                 : { box: 'bg-orange-50 border-orange-300', title: 'text-orange-900', icon: 'fa-bed-pulse', iconCls: 'text-orange-500', btn: 'bg-orange-600 hover:bg-orange-700', grip: 'bg-orange-100 text-orange-400', edit: 'border-orange-400', soft: 'hover:bg-orange-50 border-orange-200 text-orange-600' };
             return `
                 <div class="size-scale ${A.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
-                    <div class="flex items-center justify-between mb-2 sm:mb-3">
-                        <h3 class="font-bold ${A.title} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${A.icon} ${A.iconCls}"></i> ${L.title}</h3>
-                        <button data-edit-trigger onclick="addActiveIssue(${pid})" class="px-2.5 sm:px-3 py-1 sm:py-1.5 ${A.btn} text-white rounded-lg sm:rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
+                    <div class="flex items-center justify-between ${coreCollapsed.issues ? '' : 'mb-2 sm:mb-3'}">
+                        <button onclick="toggleCoreBox('issues')" class="text-left font-bold ${A.title} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${A.icon} ${A.iconCls}"></i> ${L.title}
+                            <span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${issues.length})</span><i class="fa-solid fa-chevron-${coreCollapsed.issues ? 'down' : 'up'} text-xs opacity-50"></i></button>
+                        <button data-edit-trigger onclick="addActiveIssue(${pid})" class="px-2.5 sm:px-3 py-1 sm:py-1.5 ${A.btn} text-white rounded-lg sm:rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${coreCollapsed.issues ? 'hidden' : ''}"><i class="fa-solid fa-plus"></i> Add</button>
                     </div>
+                    <div class="${coreCollapsed.issues ? 'hidden' : ''}">
                     ${issues.length === 0 ? `<div class="p-3 text-center text-slate-400 italic text-[calc(13px*var(--ts,1))] sm:text-sm">${L.empty}</div>` : ''}
                     <div class="space-y-2 sm:space-y-3" data-sort-list="issues" data-patient-id="${esc(patientId)}">
                         ${issues.map((issue, i) => isEditingItem('issue', i, patientId) ? `
@@ -2923,6 +2937,7 @@
                             <h4 class="font-bold text-indigo-900 text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] mb-1.5 px-1">Impression</h4>
                             <textarea rows="2" data-impression oninput="autoGrow(this); saveImpressionLive(${pid}, this.value)" class="auto-grow resize-none w-full bg-white border border-indigo-200 rounded-xl px-3 py-2 text-[calc(13px*var(--ts,1))] sm:text-[calc(15px*var(--ts,1))] font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-300" style="min-height: 4.5em" placeholder="Impression...">${esc(note.impression || '')}</textarea>
                         </div>` : ''}
+                    </div>
                 </div>
             `;
         }
@@ -2937,6 +2952,22 @@
                       item: 'border-green-300', edit: 'border-green-700', grip: 'bg-green-200 text-green-700', check: 'accent-green-800', emptyCls: 'text-green-900/60', ph: 'Discharge plan item...' }
         };
         let dcPlanCollapsed = false;
+        // Active Issues / Consult Details, Plan and the patient details bar: open unless you close them
+        // (remembered per entry, and included in Collapse all / Expand all).
+        let coreCollapsed = { issues: false, plan: false, details: false };
+        function noteCoreChoice(item, closed) {
+            if (!viewEntryKey) return;
+            const all = Store.get('entry_view', {});
+            const v = all[viewEntryKey] || (all[viewEntryKey] = { open: [] });
+            v.closed = (v.closed || []).filter(x => x !== item);
+            if (closed) v.closed.push(item);
+            Store.set('entry_view', all);
+        }
+        function toggleCoreBox(item) {
+            coreCollapsed[item] = !coreCollapsed[item];
+            noteCoreChoice(item, coreCollapsed[item]);
+            renderApp();
+        }
         function toggleDcPlanCollapse() { dcPlanCollapsed = !dcPlanCollapsed; noteViewChoice('dcplan', !dcPlanCollapsed); renderApp(); }
 
         function renderPlanBox(note, patientId, pid, kind = 'plan', isConsult = false) {
@@ -2944,16 +2975,16 @@
             const plan = note[K.key] || [];
             const isDc = kind === 'dcplan';
             const isSignOff = kind === 'plan' && isConsult; // consult entries: "Sign off" sits in the Plan box
-            const collapsed = isDc && dcPlanCollapsed;
+            const collapsed = isDc ? dcPlanCollapsed : coreCollapsed.plan;
             const dc = note.discharge;
             const titleHtml = `<h3 class="font-bold ${K.titleCls} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${K.icon} ${K.iconCls}"></i> ${K.title}
-                ${isDc ? `<span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${plan.length})</span><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-xs opacity-50"></i>` : ''}
+                <span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${plan.length})</span><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-xs opacity-50"></i>
                 ${isDc && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : 'Discharged'}</span>` : ''}
                 ${isSignOff && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-emerald-700 text-white">Signed off</span>` : ''}</h3>`;
             return `
                 <div class="size-scale ${K.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
                     <div class="flex items-center justify-between ${collapsed ? '' : 'mb-2 sm:mb-3'}">
-                        ${isDc ? `<button onclick="toggleDcPlanCollapse()" class="text-left">${titleHtml}</button>` : titleHtml}
+                        <button onclick="${isDc ? 'toggleDcPlanCollapse()' : "toggleCoreBox('plan')"}" class="text-left">${titleHtml}</button>
                         <div class="flex items-center gap-2 ${collapsed ? 'hidden' : ''}">
                             ${plan.length ? `<button onclick="clearPlan(${pid}, '${kind}')" class="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-trash"></i> Clear All</button>` : ''}
                             <button data-edit-trigger onclick="addPlanItem(${pid}, '${kind}')" class="px-3 py-1.5 ${K.btn} text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
@@ -4381,7 +4412,7 @@
                     </div>
                     ${panel.type === 'ulytes' ? `<div class="flex gap-1 shrink-0">${[['spot', 'Spot'], ['24h', '24 hr']].map(([v, l]) => `<button onclick="setUlytesMode(${pid}, ${panelId}, '${v}')" class="px-2 py-0.5 rounded-md text-[calc(11px*var(--ts,1))] font-bold border transition" style="${(panel.mode || 'spot') === v ? `background-color: ${th.icon}; border-color: ${th.icon}; color: #fff` : `background-color: #fff; border-color: ${th.border}; color: ${th.text}`}">${l}</button>`).join('')}</div>` : ''}
                     ${panel.type === 'text' && invColumnCount() > 1 ? `<button onclick="toggleInvSpan(${pid}, ${panelId})" class="text-slate-400 hover:text-slate-700 px-1 shrink-0 text-[calc(11px*var(--ts,1))] font-bold" title="${invPanelSpan(panel) === 2 ? 'Make 1 column wide' : 'Make 2 columns wide'}"><i class="fa-solid fa-${invPanelSpan(panel) === 2 ? 'compress' : 'arrows-left-right'}"></i></button>` : ''}
-                    ${panel.type === 'image' ? '' : (() => { const on = !panel.noteOff; return `<button onclick="toggleInvNote(${pid}, ${panelId})" class="relative w-7 h-6 shrink-0 rounded-md border flex items-center justify-center text-[calc(11px*var(--ts,1))] transition" style="${on ? `background-color: ${th.icon}; border-color: ${th.icon}; color: #fff` : 'background-color: #fff; border-color: #cbd5e1; color: #cbd5e1'}" title="${on ? 'Included in Extract Note (tap to leave out)' : 'Left out of Extract Note (tap to include)'}"><i class="fa-solid fa-note-sticky"></i><span class="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] border" style="${on ? `background-color: #fff; color: ${th.icon}; border-color: ${th.icon}` : 'background-color: #fff; color: #94a3b8; border-color: #cbd5e1'}"><i class="fa-solid fa-${on ? 'check' : 'xmark'}"></i></span></button>`; })()}
+                    ${panel.type === 'image' ? '' : (() => { const on = !panel.noteOff; return `<button onclick="toggleInvNote(${pid}, ${panelId})" class="w-7 h-6 shrink-0 rounded-md border flex items-center justify-center text-[calc(11px*var(--ts,1))] transition" style="${on ? `background-color: ${th.icon}; border-color: ${th.icon}; color: #fff` : 'background-color: #fff; border-color: #cbd5e1; color: #cbd5e1'}" title="${on ? 'Included in Extract Note (tap to leave out)' : 'Left out of Extract Note (tap to include)'}"><i class="fa-solid fa-note-sticky"></i></button>`; })()}
                     <button onclick="removeInvPanel(${pid}, ${panelId})" class="text-slate-400 hover:text-rose-600 px-1.5 shrink-0" title="Remove from this day"><i class="fa-solid fa-xmark"></i></button>
                 </div>`;
             const wrap = (inner) => `
@@ -5961,13 +5992,15 @@
             const memoOpen = ['daily', 'emr', 'summary'].some(k => !memoCollapsed[k]) &&
                 ((note && (note.memo || '').trim()) || (p.emrMemo || '').trim() || String((getDayInfo(p, curKey()) || {}).caseSummary || '').trim());
             const cards = (note && note.investigations) || [];
-            return !isMedicalBgCollapsed || !!memoOpen || !invBoxCollapsed || cards.some(x => !x.collapsed);
+            return !isMedicalBgCollapsed || !!memoOpen || !invBoxCollapsed || cards.some(x => !x.collapsed) || !coreCollapsed.issues || !coreCollapsed.plan || !coreCollapsed.details;
         }
         function setRecordCollapsed(collapse) {
             isMedicalBgCollapsed = collapse;
             memoCollapsed = { daily: collapse, emr: collapse, summary: collapse };
             invBoxCollapsed = collapse;
             dcPlanCollapsed = collapse;
+            coreCollapsed = { issues: collapse, plan: collapse, details: collapse };
+            ['issues', 'plan', 'details'].forEach(k => noteCoreChoice(k, collapse));
             const allPatients = Store.getPatients();
             const p = allPatients.find(x => x.id === activePatientId);
             const note = p && p.days && p.days[curKey()];
@@ -6002,6 +6035,8 @@
             memoCollapsed = { daily: !isOpen('memo:daily'), emr: !isOpen('memo:emr'), summary: !isOpen('memo:summary') };
             invBoxCollapsed = !isOpen('inv');
             dcPlanCollapsed = !isOpen('dcplan');
+            const closed = (v && v.closed) || [];
+            coreCollapsed = { issues: closed.includes('issues'), plan: closed.includes('plan'), details: closed.includes('details') };
             if (first) {
                 all[id] = { open: [] };
                 const keys = Object.keys(all);
@@ -6120,6 +6155,7 @@
 
 
         function addActiveIssue(patientId) {
+            if (coreCollapsed.issues) { coreCollapsed.issues = false; noteCoreChoice('issues', false); }
             const allPatients = Store.getPatients();
             const p = dayNoteFor(allPatients, patientId);
             if (!p) return;
@@ -6252,6 +6288,7 @@
             list.push({ id: (kind === 'dcplan' ? 'dc_' : 'pl_') + Date.now(), text: '', completed: false });
             Store.savePatients(allPatients);
             if (kind === 'dcplan') dcPlanCollapsed = false;
+            if (kind === 'plan' && coreCollapsed.plan) { coreCollapsed.plan = false; noteCoreChoice('plan', false); }
             startEditing(kind, list.length - 1);
         }
 
