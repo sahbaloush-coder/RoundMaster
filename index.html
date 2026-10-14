@@ -104,6 +104,8 @@
         html.is-phone #app { padding: 0.35rem 0.4rem 1.5rem !important; } /* room above the swipe-up area at the bottom */
         html.is-phone #app-header { padding: 0.4rem 0.6rem; margin-bottom: 0.5rem; gap: 0.4rem; }
         html.is-phone #app-header .w-10 { width: 2rem; height: 2rem; }
+        html.is-phone:not(.is-land) #app-header .app-subtitle { display: none; } /* phone portrait: name only */
+        html.is-phone:not(.is-land) #app-header button { padding-left: 0.6rem; padding-right: 0.6rem; }
         html.is-phone #main-view :is(.p-6, .sm\:p-6) { padding: 0.7rem; }
         html.is-phone #main-view :is(.p-5, .sm\:p-5) { padding: 0.6rem; }
         html.is-phone #main-view :is(.p-4, .sm\:p-4) { padding: 0.5rem; }
@@ -231,18 +233,18 @@
 <body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col selection:bg-indigo-100 selection:text-indigo-800">
 
     <div id="app" class="flex-1 flex flex-col w-full max-w-7xl mx-auto px-2 sm:px-4 py-3 sm:py-6">
-        <header id="app-header" class="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
-            <div class="flex items-center space-x-3 cursor-pointer" onclick="router.navigate('home')">
+        <header id="app-header" class="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 mb-6 flex flex-nowrap items-center justify-between gap-2 sm:gap-4">
+            <div class="flex items-center space-x-3 cursor-pointer min-w-0 shrink-0" onclick="router.navigate('home')">
                 <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 border border-blue-100 flex items-center justify-center shadow-sm text-lg font-bold">
                     <i class="fa-solid fa-hospital"></i>
                 </div>
                 <div>
                     <h1 class="text-xl font-bold bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent">RoundMaster</h1>
-                    <p class="text-xs text-slate-400">Clinical Rounding & Patient Manager</p>
+                    <p class="app-subtitle text-xs text-slate-400">Clinical Rounding & Patient Manager</p>
                 </div>
             </div>
             
-            <div class="flex items-center space-x-1 sm:space-x-3">
+            <div class="flex items-center space-x-0.5 sm:space-x-3">
                 <button onclick="router.navigate('home')" class="px-3 py-2 text-sm font-medium rounded-xl hover:bg-slate-100 text-slate-600 transition flex items-center gap-2">
                     <i class="fa-solid fa-house"></i> <span class="hidden sm:inline">Home</span>
                 </button>
@@ -254,9 +256,6 @@
                 </button>
                 <button onclick="router.navigate('all_patients')" class="px-3 py-2 text-sm font-medium rounded-xl hover:bg-maroon-50 text-maroon-600 transition flex items-center gap-2">
                     <i class="fa-solid fa-users"></i> <span class="hidden sm:inline">All Patients</span>
-                </button>
-                <button onclick="exitApp()" class="w-9 h-9 flex items-center justify-center text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition" title="Close RoundMaster">
-                    <i class="fa-solid fa-xmark text-xl"></i>
                 </button>
             </div>
         </header>
@@ -3312,22 +3311,22 @@
             noteDirty = false; noteCloseArmed = false; noteResetArmed = false;
             const saved = savedNoteFor(patientId, noteExtractKey);
             const body = saved ? saved.html : noteLinesHtml(buildNoteLines(patientId));
-            const btn = 'px-3 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 transition';
+            const btn = 'w-10 h-10 shrink-0 rounded-xl text-base flex items-center justify-center transition';
             document.getElementById('modal-container').innerHTML = `
                 <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
                     <div class="bg-white rounded-3xl w-full max-w-3xl shadow-2xl flex flex-col" style="max-height: 92vh">
                         <div class="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-100 flex-wrap">
                             <div class="min-w-0">
                                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-file-lines text-slate-500"></i> Note · ${esc(p ? p.name : '')}</h3>
-                                <p class="text-[calc(11px*var(--ts,1))] text-slate-400">Fill in the <span class="note-ph">green</span> fields: tap one, then <b>Tab</b> (or <b>Enter</b> on a phone / tablet) moves to the next. Once all are filled, Tab types a tab space and Enter starts a new line. <span class="note-user font-semibold">Grey</span> = text you added.</p>
+                                <p class="text-[calc(11px*var(--ts,1))] text-slate-500">Press <b>Tab</b> (<b>Enter</b> on a phone) to move through the <span class="note-ph">placeholders</span>. <span class="note-user font-semibold">Grey text</span> is what you added yourself.</p>
                                 <p id="note-saved-info" class="text-[calc(11px*var(--ts,1))] font-semibold text-indigo-600 mt-0.5"></p>
                             </div>
                             <div class="flex items-center gap-2 flex-wrap justify-end">
                                 <span id="note-status" class="text-[calc(11px*var(--ts,1))] font-bold px-2 py-1 rounded-lg"></span>
-                                <button id="note-save-btn" onclick="saveNoteForToday()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white"><i class="fa-solid fa-floppy-disk"></i> Save for today</button>
-                                <button id="note-reset-btn" onclick="resetExtractedNote()" class="${btn} bg-white hover:bg-rose-50 text-rose-600 border border-rose-200"><i class="fa-solid fa-rotate-left"></i> <span>Reset note</span></button>
-                                <button onclick="copyExtractedNote()" class="${btn} bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-copy"></i> Copy</button>
-                                <button id="note-close-btn" onclick="closeNoteExtract()" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium">Close</button>
+                                <button id="note-save-btn" onclick="saveNoteForToday()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white" title="Save for today"><i class="fa-solid fa-floppy-disk"></i></button>
+                                <button id="note-reset-btn" onclick="resetExtractedNote()" class="${btn} bg-white hover:bg-rose-50 text-rose-600 border border-rose-200" title="Reset note"><i class="fa-solid fa-rotate-left"></i></button>
+                                <button onclick="copyExtractedNote()" class="${btn} bg-slate-800 hover:bg-slate-900 text-white" title="Copy note"><i class="fa-solid fa-copy"></i></button>
+                                <button id="note-close-btn" onclick="closeNoteExtract()" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-700" title="Close"><i class="fa-solid fa-xmark"></i></button>
                             </div>
                         </div>
                         <div id="note-extract" contenteditable="true" spellcheck="false" class="note-doc flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-[calc(14px*var(--ts,1))] leading-relaxed text-slate-900 focus:outline-none">${body}</div>
@@ -3355,7 +3354,7 @@
         }
         function setNoteDirty(v) {
             noteDirty = v; noteCloseArmed = false;
-            const c = document.getElementById('note-close-btn'); if (c) c.textContent = 'Close';
+            const c = document.getElementById('note-close-btn'); if (c) c.classList.remove('bg-amber-400', 'text-amber-950');
             const b = document.getElementById('note-save-btn');
             if (b) b.classList.toggle('ring-2', v), b.classList.toggle('ring-indigo-300', v);
             if (v) { const info = document.getElementById('note-saved-info'); if (info && info.textContent && !info.textContent.includes('unsaved')) info.insertAdjacentHTML('beforeend', ' · <span class="text-amber-600">unsaved changes</span>'); }
@@ -3379,8 +3378,9 @@
             const b = document.getElementById('note-reset-btn');
             if (!noteResetArmed) {
                 noteResetArmed = true;
-                if (b) { b.querySelector('span').textContent = 'Tap again to reset'; b.classList.add('bg-rose-600', 'text-white'); }
-                setTimeout(() => { if (noteResetArmed && b && b.isConnected) { noteResetArmed = false; b.querySelector('span').textContent = 'Reset note'; b.classList.remove('bg-rose-600', 'text-white'); } }, 3000);
+                if (b) { b.classList.add('bg-rose-600', 'text-white'); b.classList.remove('text-rose-600'); }
+                showToast('Tap reset again to clear all edits');
+                setTimeout(() => { if (noteResetArmed && b && b.isConnected) { noteResetArmed = false; b.classList.remove('bg-rose-600', 'text-white'); b.classList.add('text-rose-600'); } }, 3000);
                 return;
             }
             noteResetArmed = false;
@@ -3395,7 +3395,9 @@
             if (noteDirty && !noteCloseArmed) {
                 noteCloseArmed = true;
                 const c = document.getElementById('note-close-btn');
-                if (c) c.textContent = 'Close without saving?';
+                if (c) c.classList.add('bg-amber-400', 'text-amber-950');
+                showToast('Unsaved changes · tap ✕ again to close without saving');
+                setTimeout(() => { noteCloseArmed = false; if (c && c.isConnected) c.classList.remove('bg-amber-400', 'text-amber-950'); }, 3000);
                 return;
             }
             noteExtractFor = null; noteDirty = false;
