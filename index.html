@@ -60,6 +60,7 @@
         .lab-range { font-size: calc(11px * var(--ts, 1)); zoom: 0.82; margin-top: 1px; }
         .note-ph { background: #dcfce7; color: #166534; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -1px 0 #86efac; }
         .note-ph.filled { background: transparent; color: inherit; padding: 0; box-shadow: none; }
+        .note-user { color: #64748b; } /* your own additions to the note (grey in the app; copied as normal text) */
         [data-sort-item].dragging { opacity: 0.85; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18); position: relative; z-index: 30; }
         body.is-dragging, body.is-dragging * { user-select: none !important; -webkit-user-select: none !important; cursor: grabbing !important; }
 
@@ -3298,31 +3299,168 @@
             }).join('');
         }
 
-        let noteExtractFor = null;
+        let noteExtractFor = null, noteExtractKey = null, noteDirty = false, noteCloseArmed = false, noteResetArmed = false;
+        function savedNoteFor(patientId, key) {
+            const p = Store.getPatients().find(x => x.id === patientId);
+            const n = p && getDayNote(p, key);
+            return n && n.savedNote && n.savedNote.html ? n.savedNote : null;
+        }
         function openNoteExtract(patientId) {
-            const lines = buildNoteLines(patientId);
             const p = Store.getPatients().find(x => x.id === patientId);
             noteExtractFor = patientId;
+            noteExtractKey = curKey();
+            noteDirty = false; noteCloseArmed = false; noteResetArmed = false;
+            const saved = savedNoteFor(patientId, noteExtractKey);
+            const body = saved ? saved.html : noteLinesHtml(buildNoteLines(patientId));
+            const btn = 'px-3 py-2 rounded-xl text-sm font-semibold flex items-center gap-1.5 transition';
             document.getElementById('modal-container').innerHTML = `
                 <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
                     <div class="bg-white rounded-3xl w-full max-w-3xl shadow-2xl flex flex-col" style="max-height: 92vh">
                         <div class="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-100 flex-wrap">
-                            <div>
+                            <div class="min-w-0">
                                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-file-lines text-slate-500"></i> Note · ${esc(p ? p.name : '')}</h3>
-                                <p class="text-[calc(11px*var(--ts,1))] text-slate-400">Fill in the <span class="note-ph">green</span> fields: tap one, then <b>Tab</b> (or <b>Enter</b> on a phone / tablet) moves to the next. Once all are filled, Tab types a tab space and Enter starts a new line.</p>
+                                <p class="text-[calc(11px*var(--ts,1))] text-slate-400">Fill in the <span class="note-ph">green</span> fields: tap one, then <b>Tab</b> (or <b>Enter</b> on a phone / tablet) moves to the next. Once all are filled, Tab types a tab space and Enter starts a new line. <span class="note-user font-semibold">Grey</span> = text you added.</p>
+                                <p id="note-saved-info" class="text-[calc(11px*var(--ts,1))] font-semibold text-indigo-600 mt-0.5"></p>
                             </div>
-                            <div class="flex items-center gap-2">
+                            <div class="flex items-center gap-2 flex-wrap justify-end">
                                 <span id="note-status" class="text-[calc(11px*var(--ts,1))] font-bold px-2 py-1 rounded-lg"></span>
-                                <button onclick="copyExtractedNote()" class="px-4 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-sm font-semibold flex items-center gap-2"><i class="fa-solid fa-copy"></i> Copy</button>
-                                <button onclick="noteExtractFor = null; closeModal()" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm">Close</button>
+                                <button id="note-save-btn" onclick="saveNoteForToday()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white"><i class="fa-solid fa-floppy-disk"></i> Save for today</button>
+                                <button id="note-reset-btn" onclick="resetExtractedNote()" class="${btn} bg-white hover:bg-rose-50 text-rose-600 border border-rose-200"><i class="fa-solid fa-rotate-left"></i> <span>Reset note</span></button>
+                                <button onclick="copyExtractedNote()" class="${btn} bg-slate-800 hover:bg-slate-900 text-white"><i class="fa-solid fa-copy"></i> Copy</button>
+                                <button id="note-close-btn" onclick="closeNoteExtract()" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-700 font-medium">Close</button>
                             </div>
                         </div>
-                        <div id="note-extract" contenteditable="true" spellcheck="false" oninput="updateNoteFields()" class="note-doc flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-[calc(14px*var(--ts,1))] leading-relaxed text-slate-900 focus:outline-none">${noteLinesHtml(lines)}</div>
+                        <div id="note-extract" contenteditable="true" spellcheck="false" class="note-doc flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-[calc(14px*var(--ts,1))] leading-relaxed text-slate-900 focus:outline-none">${body}</div>
                     </div>
                 </div>`;
+            noteInitTracking();
             updateNoteFields();
+            showNoteSavedInfo(saved);
+            const box = document.getElementById('note-extract');
+            box.addEventListener('input', (e) => {
+                if (!e.isComposing) noteMarkUserText();
+                updateNoteFields();
+                setNoteDirty(true);
+            });
+            box.addEventListener('compositionend', () => setTimeout(() => { noteMarkUserText(); updateNoteFields(); }, 0));
             // Start on the first green field (on a keyboard device; phones would pop the keyboard up straight away)
-            if (window.matchMedia && window.matchMedia('(pointer: fine)').matches) goToNoteField(1, true);
+            if (!saved && window.matchMedia && window.matchMedia('(pointer: fine)').matches) goToNoteField(1, true);
+        }
+        function showNoteSavedInfo(saved) {
+            const el = document.getElementById('note-saved-info');
+            if (!el) return;
+            if (!saved) { el.textContent = ''; return; }
+            const d = new Date(saved.at || Date.now());
+            el.innerHTML = `<i class="fa-solid fa-floppy-disk"></i> Saved note for ${esc(fmtDate(keyDate(noteExtractKey)))} · ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}${noteDirty ? ' · <span class="text-amber-600">unsaved changes</span>' : ''} <span class="font-normal text-slate-400">(Reset note rebuilds it from the latest entry)</span>`;
+        }
+        function setNoteDirty(v) {
+            noteDirty = v; noteCloseArmed = false;
+            const c = document.getElementById('note-close-btn'); if (c) c.textContent = 'Close';
+            const b = document.getElementById('note-save-btn');
+            if (b) b.classList.toggle('ring-2', v), b.classList.toggle('ring-indigo-300', v);
+            if (v) { const info = document.getElementById('note-saved-info'); if (info && info.textContent && !info.textContent.includes('unsaved')) info.insertAdjacentHTML('beforeend', ' · <span class="text-amber-600">unsaved changes</span>'); }
+        }
+        // Save for today: keeps this note (with your edits) on this patient's entry for this day only.
+        function saveNoteForToday() {
+            const box = document.getElementById('note-extract');
+            if (!box || !noteExtractFor) return;
+            const allPatients = Store.getPatients();
+            const note = dayNoteFor(allPatients, noteExtractFor, noteExtractKey);
+            if (!note) return;
+            note.savedNote = { html: box.innerHTML, at: Date.now() };
+            Store.savePatients(allPatients);
+            noteDirty = false;
+            setNoteDirty(false);
+            showNoteSavedInfo(note.savedNote);
+            showToast('Note saved for ' + fmtDate(keyDate(noteExtractKey)));
+        }
+        // Reset note: drops every edit (and the saved copy) and rebuilds the note from the entry. Tap twice.
+        function resetExtractedNote() {
+            const b = document.getElementById('note-reset-btn');
+            if (!noteResetArmed) {
+                noteResetArmed = true;
+                if (b) { b.querySelector('span').textContent = 'Tap again to reset'; b.classList.add('bg-rose-600', 'text-white'); }
+                setTimeout(() => { if (noteResetArmed && b && b.isConnected) { noteResetArmed = false; b.querySelector('span').textContent = 'Reset note'; b.classList.remove('bg-rose-600', 'text-white'); } }, 3000);
+                return;
+            }
+            noteResetArmed = false;
+            const allPatients = Store.getPatients();
+            const p = allPatients.find(x => x.id === noteExtractFor);
+            const n = p && getDayNote(p, noteExtractKey);
+            if (n && n.savedNote) { delete n.savedNote; Store.savePatients(allPatients); }
+            openNoteExtract(noteExtractFor);
+            showToast('Note reset');
+        }
+        function closeNoteExtract() {
+            if (noteDirty && !noteCloseArmed) {
+                noteCloseArmed = true;
+                const c = document.getElementById('note-close-btn');
+                if (c) c.textContent = 'Close without saving?';
+                return;
+            }
+            noteExtractFor = null; noteDirty = false;
+            closeModal();
+        }
+
+        /* Your additions show in grey. Every piece of the generated note is remembered; anything typed
+           into it (or on new lines) is wrapped as "your text". Works with phone keyboards that type whole words. */
+        let noteOrig = new WeakMap();
+        function noteInitTracking() {
+            noteOrig = new WeakMap();
+            const box = document.getElementById('note-extract');
+            if (!box) return;
+            const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+            let n;
+            while ((n = w.nextNode())) { if (!n.parentElement.closest('.note-ph, .note-user')) noteOrig.set(n, n.data); }
+        }
+        function noteMarkUserText() {
+            const box = document.getElementById('note-extract');
+            if (!box) return;
+            const sel = window.getSelection();
+            const caretNode = sel.rangeCount && sel.isCollapsed ? sel.anchorNode : null, caretOff = sel.anchorOffset;
+            let newCaret = null;
+            const texts = [];
+            const w = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+            let t;
+            while ((t = w.nextNode())) texts.push(t);
+            texts.forEach(n => {
+                const pe = n.parentElement;
+                if (!pe || pe.closest('.note-ph, .note-user')) return;
+                const cur = n.data;
+                if (noteOrig.has(n)) {
+                    const orig = noteOrig.get(n);
+                    if (cur === orig) return;
+                    let a = 0; while (a < cur.length && a < orig.length && cur[a] === orig[a]) a++;
+                    let z = 0; while (z < cur.length - a && z < orig.length - a && cur[cur.length - 1 - z] === orig[orig.length - 1 - z]) z++;
+                    const ins = cur.slice(a, cur.length - z);
+                    if (!ins.replace(/​/g, '')) { noteOrig.set(n, cur); return; } // only deleted something
+                    const tail = cur.slice(cur.length - z);
+                    const span = document.createElement('span');
+                    span.className = 'note-user';
+                    span.textContent = ins;
+                    n.data = cur.slice(0, a);
+                    noteOrig.set(n, n.data);
+                    n.after(span);
+                    let tailNode = null;
+                    if (tail) { tailNode = document.createTextNode(tail); span.after(tailNode); noteOrig.set(tailNode, tail); }
+                    if (n === caretNode) {
+                        if (caretOff <= a) newCaret = [n, caretOff];
+                        else if (caretOff <= a + ins.length) newCaret = [span.firstChild, caretOff - a];
+                        else newCaret = [tailNode || span.firstChild, tailNode ? caretOff - a - ins.length : ins.length];
+                    }
+                    if (!n.data) { if (newCaret && newCaret[0] === n) newCaret = [span.firstChild, 0]; n.remove(); }
+                } else {
+                    if (!cur.replace(/​/g, '')) return; // empty helper
+                    const span = document.createElement('span');
+                    span.className = 'note-user';
+                    n.replaceWith(span);
+                    span.appendChild(n);
+                    if (n === caretNode) newCaret = [n, caretOff];
+                }
+            });
+            if (newCaret) {
+                try { const r = document.createRange(); r.setStart(newCaret[0], Math.min(newCaret[1], newCaret[0].length)); r.collapse(true); sel.removeAllRanges(); sel.addRange(r); } catch (e) {}
+            }
         }
 
         /* Green fields: filled ones turn back to normal black text; the counter shows how many are left. */
@@ -3434,6 +3572,7 @@
                 const t = document.createTextNode('\t');
                 r.insertNode(t);
                 caretAfter(t);
+                noteMarkUserText(); setNoteDirty(true);
             }
             else if (e.key === 'Enter' && !e.shiftKey && isTouchDevice()) noteJumpKey(e, false);
         });
@@ -3460,7 +3599,7 @@
             const unfilled = [...box.querySelectorAll('.note-ph')].filter(x => !noteFieldFilled(x)).length;
             // Copy without the green highlighting.
             const clone = box.cloneNode(true);
-            clone.querySelectorAll('.note-ph').forEach(x => x.replaceWith(document.createTextNode(x.textContent)));
+            clone.querySelectorAll('.note-ph, .note-user').forEach(x => x.replaceWith(document.createTextNode(x.textContent)));
             const html = `<div style="font-family: Calibri, Arial, sans-serif; font-size: 11pt">${clone.innerHTML.replace(/\u200B/g, '')}</div>`;
             const text = [...clone.children].map(d => d.textContent).join('\n').replace(/\u200B/g, '');
             let ok = false;
