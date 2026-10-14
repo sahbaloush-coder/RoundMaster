@@ -3046,7 +3046,8 @@
             return v === undefined || v === null ? '' : String(v).trim();
         }
 
-        const COL = '\t\t'; // two tab spaces between columns of data
+        const COL = '\t';     // investigations: one tab space between columns of data
+        const COL2 = '\t\t'; // vitals and I/O: two tab spaces
         // A table card as lines: card name (with today's and the day before's dates), then "label<tab>today<tab>day before".
         // noDash (Vitals, I/O): an empty value is left blank instead of "—", and the day-before column
         // is only shown when something was recorded that day.
@@ -3059,7 +3060,7 @@
             const unit = (r) => r.unit ? (/^[%°]/.test(r.unit) ? '' : ' ') + r.unit : '';
             const empty = noDash ? '' : '—';
             const showPrev = !noDash || rows.some(x => x.prev);
-            const line = (cells) => { const c = [...cells]; if (noDash) while (c.length > 1 && !c[c.length - 1]) c.pop(); return c.join(COL); };
+            const line = (cells) => { const c = [...cells]; if (noDash) while (c.length > 1 && !c[c.length - 1]) c.pop(); return c.join(noDash ? COL2 : COL); };
             return [
                 headFmt(line([title, `[${fmtMD(date)}]`, ...(showPrev ? [`[${fmtMD(addDays(date, -1))}]`] : [])])),
                 ...rows.map(({ r, now, prev }) => NTEXT(line([r.label, now ? now + unit(r) : empty, ...(showPrev ? [prev ? prev + unit(r) : empty] : [])])))
@@ -3097,9 +3098,9 @@
                 const labels = order.filter(l => now[l] || prev[l]);
                 if (labels.length) {
                     const showPrev = labels.some(l => prev[l]);
-                    const line = (cells) => { const c = [...cells]; while (c.length > 1 && !c[c.length - 1]) c.pop(); return c.join(COL); };
+                    const line = (cells) => { const c = [...cells]; while (c.length > 1 && !c[c.length - 1]) c.pop(); return c.join(COL2); };
                     blocks.push([
-                        NL([NT('• '), NB('Vitals'), NT(COL + `[${fmtMD(date)}]` + (showPrev ? COL + `[${fmtMD(addDays(date, -1))}]` : ''))]),
+                        NL([NT('• '), NB('Vitals'), NT(COL2 + `[${fmtMD(date)}]` + (showPrev ? COL2 + `[${fmtMD(addDays(date, -1))}]` : ''))]),
                         ...labels.map(l => NTEXT(line([l, now[l] || '', ...(showPrev ? [prev[l] || ''] : [])])))
                     ]);
                 }
@@ -3110,8 +3111,8 @@
                 if (vals.some(x => x.v)) {
                     blocks.push([
                         NL([NT('• '), NB('I/O')]),
-                        NTEXT(vals.map(x => x.label).join(COL), { b: true, u: true }),
-                        NTEXT(vals.map(x => x.v || '').join(COL))
+                        NTEXT(vals.map(x => x.label).join(COL2), { b: true, u: true }),
+                        NTEXT(vals.map(x => x.v || '').join(COL2))
                     ]);
                 }
             }
@@ -3209,20 +3210,28 @@
                 L.push(NTEXT('CASE SUMMARY', H));
                 L.push(NL([NT('This is a '), NT(age || '—'), NT(', '), NT(gender || '—'), NT(', patient. Known case of:')]));
             };
+            // Only the cards ticked for the note (sticky-note button on each card)
+            const noteCards = { ...note, investigations: (note.investigations || []).filter(x => !x.noteOff) };
             const assessment = () => {
                 L.push(NTEXT('ASSESSMENT', H));
+                const clinical = extractClinical(raw, noteCards, date, type);
+                const inv = extractInvestigations(raw, noteCards, date, type);
+                // "[1] Clinical" always stays (the examination is clinical too); Vitals / I/O only when ticked and recorded
                 L.push(NTEXT('[1] Clinical', { b: true }));
                 // a blank line after each card; cards not on the entry (or empty) are left out with their space
-                extractClinical(raw, note, date, type).forEach(b => { L.push(...b); blank(); });
+                clinical.forEach(b => { L.push(...b); blank(); });
                 L.push(NL([NPH('EXAMINATION')]));
                 ['• Conscious, oriented and alert. GCS 15/15',
                  '• CVS: S1+S2 with no added sounds. No raised JVP noted',
                  '• Chest: equal breathing bilaterally with no additional sounds.',
                  '• Abdomen: soft and lax. Non tender.',
                  '• LL: no edema or signs of DVT'].forEach(t => L.push(NTEXT(t)));
-                blank();
-                L.push(NTEXT('[2] Investigations', { b: true }));
-                L.push(...extractInvestigations(raw, note, date, type));
+                // no investigation card to show: the whole section (with its heading) is left out
+                if (inv.length) {
+                    blank();
+                    L.push(NTEXT('[2] Investigations', { b: true }));
+                    L.push(...inv);
+                }
             };
             const resolvedSection = (dots, after) => {
                 if (!resolved.length) return; // no resolved issues: the whole section is left out
@@ -3251,9 +3260,12 @@
                 blank(2);
                 L.push(NL([NT('PLAN as discussed with Dr. '), MRP()], H));
                 bulletLines(note.plan);
-                blank();
-                L.push(NTEXT('DISCHARGE PLAN', H));
-                bulletLines(note.dcPlan);
+                // no discharge plan: the section and its heading are left out
+                if ((note.dcPlan || []).some(x => (x.text || '').trim())) {
+                    blank();
+                    L.push(NTEXT('DISCHARGE PLAN', H));
+                    bulletLines(note.dcPlan);
+                }
             } else {
                 header(' Team with Dr. ');
                 mbList.forEach(m => L.push(NTEXT('• ' + mbText(m))));
@@ -4158,6 +4170,7 @@
                 const o = { col: (sp.col !== undefined && sp.col !== null) ? sp.col : i % 3 };
                 if (sp.span) o.span = sp.span;
                 if (sp.collapsed) o.collapsed = true;
+                if (sp.noteOff) o.noteOff = true;
                 return o;
             };
             const sameSet = (a, b) => a.type === b.type && (a.type !== 'custom' || a.setId === b.setId);
@@ -4368,6 +4381,7 @@
                     </div>
                     ${panel.type === 'ulytes' ? `<div class="flex gap-1 shrink-0">${[['spot', 'Spot'], ['24h', '24 hr']].map(([v, l]) => `<button onclick="setUlytesMode(${pid}, ${panelId}, '${v}')" class="px-2 py-0.5 rounded-md text-[calc(11px*var(--ts,1))] font-bold border transition" style="${(panel.mode || 'spot') === v ? `background-color: ${th.icon}; border-color: ${th.icon}; color: #fff` : `background-color: #fff; border-color: ${th.border}; color: ${th.text}`}">${l}</button>`).join('')}</div>` : ''}
                     ${panel.type === 'text' && invColumnCount() > 1 ? `<button onclick="toggleInvSpan(${pid}, ${panelId})" class="text-slate-400 hover:text-slate-700 px-1 shrink-0 text-[calc(11px*var(--ts,1))] font-bold" title="${invPanelSpan(panel) === 2 ? 'Make 1 column wide' : 'Make 2 columns wide'}"><i class="fa-solid fa-${invPanelSpan(panel) === 2 ? 'compress' : 'arrows-left-right'}"></i></button>` : ''}
+                    ${panel.type === 'image' ? '' : (() => { const on = !panel.noteOff; return `<button onclick="toggleInvNote(${pid}, ${panelId})" class="relative w-7 h-6 shrink-0 rounded-md border flex items-center justify-center text-[calc(11px*var(--ts,1))] transition" style="${on ? `background-color: ${th.icon}; border-color: ${th.icon}; color: #fff` : 'background-color: #fff; border-color: #cbd5e1; color: #cbd5e1'}" title="${on ? 'Included in Extract Note (tap to leave out)' : 'Left out of Extract Note (tap to include)'}"><i class="fa-solid fa-note-sticky"></i><span class="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full flex items-center justify-center text-[8px] border" style="${on ? `background-color: #fff; color: ${th.icon}; border-color: ${th.icon}` : 'background-color: #fff; color: #94a3b8; border-color: #cbd5e1'}"><i class="fa-solid fa-${on ? 'check' : 'xmark'}"></i></span></button>`; })()}
                     <button onclick="removeInvPanel(${pid}, ${panelId})" class="text-slate-400 hover:text-rose-600 px-1.5 shrink-0" title="Remove from this day"><i class="fa-solid fa-xmark"></i></button>
                 </div>`;
             const wrap = (inner) => `
@@ -4759,6 +4773,17 @@
             const name = { cultures: 'culture', pcr: 'PCR / RAT result', ua: 'urinalysis' }[type];
             if (recHasContent(row)) showConfirm({ title: `Delete this ${name}?`, messageHtml: "It is removed from this patient's record on every day.", confirmLabel: 'Delete', onConfirm: doRemove });
             else doRemove();
+        }
+
+        // Sticky-note tick on a card: include it in Extract Note or leave it out (this entry only).
+        function toggleInvNote(patientId, panelId) {
+            const allPatients = Store.getPatients();
+            const { panel } = findPanel(allPatients, patientId, panelId);
+            if (!panel) return;
+            panel.noteOff = !panel.noteOff;
+            Store.savePatients(allPatients);
+            renderApp();
+            showToast(panel.noteOff ? 'Left out of Extract Note' : 'Included in Extract Note');
         }
 
         function findPanel(allPatients, patientId, panelId) {
