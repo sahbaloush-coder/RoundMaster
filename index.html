@@ -39,7 +39,6 @@
         try { if (screen.orientation) screen.orientation.addEventListener('change', rmOrientation); } catch (e) {}
         window.addEventListener('orientationchange', function () { setTimeout(rmOrientation, 50); });
         window.addEventListener('resize', rmOrientation);
-        try { var ts = JSON.parse(localStorage.getItem('roundmaster_text_scale') || '1'); if (ts && ts !== 1) document.documentElement.style.setProperty('--ts', String(ts)); } catch (e) {}
         try {
             var t = JSON.parse(localStorage.getItem('roundmaster_theme') || '"light"');
             if (t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
@@ -106,7 +105,9 @@
         html.is-phone #app-header { padding: 0.4rem 0.6rem; margin-bottom: 0.5rem; gap: 0.4rem; }
         html.is-phone #app-header .w-10 { width: 2rem; height: 2rem; }
         html.is-phone:not(.is-land) #app-header .app-subtitle { display: none; } /* phone portrait: name only */
-        html.is-phone:not(.is-land) #app-header button { padding-left: 0.6rem; padding-right: 0.6rem; }
+        html.is-phone:not(.is-land) #app-header button { padding-left: 0.45rem; padding-right: 0.45rem; }
+        #app-header > div:last-child { flex-shrink: 0; }
+        #app-header .rm-logo { flex-shrink: 0; }
         html.is-phone #main-view :is(.p-6, .sm\:p-6) { padding: 0.7rem; }
         html.is-phone #main-view :is(.p-5, .sm\:p-5) { padding: 0.6rem; }
         html.is-phone #main-view :is(.p-4, .sm\:p-4) { padding: 0.5rem; }
@@ -182,6 +183,8 @@
         /* App logo (clipboard with heart, crimson) */
         .rm-logo { background: #7a0410 url('data:image/jpeg;base64,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') center / cover no-repeat; }
 
+        @keyframes pttPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
         /* Date boxes: type the date, or tap the calendar button */
         .date-field { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; }
         .date-field .date-field-text { background: transparent; border: 0; outline: none; padding: 0; margin: 0; font: inherit; color: inherit; width: 10.5ch; min-width: 0; }
@@ -209,7 +212,7 @@
         :root { --card-scale: 1; --ts: 1; }
         /* Text size (Settings → Appearance): scales only the text, everywhere */
         body { font-size: calc(16px * var(--ts, 1)); }
-        .size-scale { zoom: var(--card-scale); }
+        #app { zoom: var(--card-scale); }
 
         /* Clickable read-only items that open inline editing */
         .edit-trigger { cursor: text; }
@@ -238,10 +241,10 @@
 
     <div id="app" class="flex-1 flex flex-col w-full max-w-7xl mx-auto px-2 sm:px-4 py-3 sm:py-6">
         <header id="app-header" class="bg-white rounded-2xl shadow-sm border border-slate-200/80 p-4 mb-6 flex flex-nowrap items-center justify-between gap-2 sm:gap-4">
-            <div class="flex items-center space-x-3 cursor-pointer min-w-0 shrink-0" onclick="router.navigate('home')">
+            <div class="flex items-center space-x-3 cursor-pointer min-w-0" onclick="router.navigate('home')">
                 <div class="rm-logo w-10 h-10 rounded-xl shadow-sm" role="img" aria-label="RoundMaster"></div>
-                <div>
-                    <h1 class="text-xl font-bold bg-gradient-to-r from-[#a3101d] to-[#5e0310] bg-clip-text text-transparent">RoundMaster</h1>
+                <div class="min-w-0">
+                    <h1 class="truncate text-xl font-bold bg-gradient-to-r from-[#a3101d] to-[#5e0310] bg-clip-text text-transparent">RoundMaster</h1>
                     <p class="app-subtitle text-xs text-slate-400">Clinical Rounding & Patient Manager</p>
                 </div>
             </div>
@@ -3090,11 +3093,12 @@
             if (!rows.length) return [];
             const unit = (r) => r.unit ? (/^[%°]/.test(r.unit) ? '' : ' ') + r.unit : '';
             const empty = noDash ? '' : '—';
-            const showPrev = !noDash || rows.some(x => x.prev);
+            // a day's date (and column) only appears when that day has a value in this card
+            const showNow = rows.some(x => x.now), showPrev = rows.some(x => x.prev);
             const line = (cells) => { const c = [...cells]; if (noDash) while (c.length > 1 && !c[c.length - 1]) c.pop(); return c.join(noDash ? COL2 : COL); };
             return [
-                headFmt(line([title, `[${fmtMD(date)}]`, ...(showPrev ? [`[${fmtMD(addDays(date, -1))}]`] : [])])),
-                ...rows.map(({ r, now, prev }) => NTEXT(line([r.label, now ? now + unit(r) : empty, ...(showPrev ? [prev ? prev + unit(r) : empty] : [])])))
+                headFmt(line([title, ...(showNow ? [`[${fmtMD(date)}]`] : []), ...(showPrev ? [`[${fmtMD(addDays(date, -1))}]`] : [])])),
+                ...rows.map(({ r, now, prev }) => NTEXT(line([r.label, ...(showNow ? [now ? now + unit(r) : empty] : []), ...(showPrev ? [prev ? prev + unit(r) : empty] : [])])))
             ];
         }
         // [1] Clinical: "• Vitals" and "• I/O" blocks, only for cards on this entry. No units.
@@ -3128,11 +3132,13 @@
                 const order = ['BP', ...rows.filter(r => !['vitals.sbp', 'vitals.dbp', 'vitals.map', 'vitals.spo2', 'vitals.fio2'].includes(r.key)).map(r => r.label), 'SpO2'];
                 const labels = order.filter(l => now[l] || prev[l]);
                 if (labels.length) {
-                    const showPrev = labels.some(l => prev[l]);
+                    // a day's date (and column) only appears when that day has something recorded
+                    const showNow = labels.some(l => now[l]), showPrev = labels.some(l => prev[l]);
+                    const dates = [...(showNow ? [`[${fmtMD(date)}]`] : []), ...(showPrev ? [`[${fmtMD(addDays(date, -1))}]`] : [])];
                     const line = (cells) => { const c = [...cells]; while (c.length > 1 && !c[c.length - 1]) c.pop(); return c.join(COL2); };
                     blocks.push([
-                        NL([NT('• '), NB('Vitals'), NT(COL2 + `[${fmtMD(date)}]` + (showPrev ? COL2 + `[${fmtMD(addDays(date, -1))}]` : ''))]),
-                        ...labels.map(l => NTEXT(line([l, now[l] || '', ...(showPrev ? [prev[l] || ''] : [])])))
+                        NL([NT('• '), NB('Vitals'), NT(dates.map(d => COL2 + d).join(''))]),
+                        ...labels.map(l => NTEXT(line([l, ...(showNow ? [now[l] || ''] : []), ...(showPrev ? [prev[l] || ''] : [])])))
                     ]);
                 }
             }
@@ -5818,7 +5824,7 @@
             renderApp();
         }
         const TEXT_SCALES = [[0.9, 'Small'], [1, 'Normal'], [1.12, 'Large'], [1.25, 'Extra large'], [1.4, 'Huge']];
-        function getTextScale() { return Store.get('text_scale', 1); }
+        function getTextScale() { return 1; } // one Size setting now (Settings → Appearance)
         function applyTextScale() { document.documentElement.style.setProperty('--ts', String(getTextScale())); }
         function setTextScale(v) {
             Store.set('text_scale', v);
@@ -5875,16 +5881,7 @@
                                     </button>`).join('')}
                             </div>
                             <div class="pt-2">
-                                <span class="block text-xs font-semibold text-slate-600 mb-1.5">Text size <span class="font-normal text-slate-400">— makes the writing bigger or smaller everywhere; boxes stay the same width</span></span>
-                                <div class="inline-flex p-1 bg-slate-100 rounded-2xl gap-1 flex-wrap">
-                                    ${TEXT_SCALES.map(([v, label]) => `
-                                        <button onclick="setTextScale(${v})" class="px-3 py-1.5 rounded-xl text-sm font-semibold transition ${getTextScale() === v ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}">
-                                            <span style="font-size: ${Math.round(13 * v)}px">A</span> ${label}
-                                        </button>`).join('')}
-                                </div>
-                            </div>
-                            <div class="pt-2">
-                                <span class="block text-xs font-semibold text-slate-600 mb-1.5">Card zoom <span class="font-normal text-slate-400">— enlarges whole cards and boxes (text and spacing together)</span></span>
+                                <span class="block text-xs font-semibold text-slate-600 mb-1.5">Size <span class="font-normal text-slate-400">— makes everything bigger or smaller together (text and boxes)</span></span>
                                 <div class="inline-flex p-1 bg-slate-100 rounded-2xl gap-1 flex-wrap">
                                     ${CARD_SCALES.map(([v, label]) => `
                                         <button onclick="setCardScale(${v})" class="px-3 py-1.5 rounded-xl text-sm font-semibold transition ${getCardScale() === v ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-800'}">
@@ -7957,6 +7954,117 @@
             document.addEventListener('focusin', (e) => { if (isTypingBox(e.target)) scheduleKeepVisible(350); });
             document.addEventListener('focusout', () => setTimeout(() => { if (!isTypingBox(document.activeElement)) document.documentElement.classList.remove('kb-open'); }, 100));
         }
+
+        /* =========================================================
+           HOLD-TO-TALK (mouse only)
+           Press and hold the mouse button on a text box: after a moment it listens, and what you say is typed
+           where the cursor is. Let go and it stops. Uses the browser's speech recognition (needs internet;
+           the audio goes to Google / Apple to be turned into text). A normal click is unaffected.
+           ========================================================= */
+        const PTT_DELAY = 450;   // ms of holding before listening starts
+        const PTT_MOVE = 12;     // moving more than this (px) before it starts = a normal drag / text selection
+        let ptt = null;          // { el, x, y, timer, rec, active, done, finals, interim, bubble }
+        function speechSupported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
+        function pttTarget(t) {
+            const el = t && t.closest ? t.closest(TYPING_SEL) : null;
+            if (!el || el.disabled || el.readOnly) return null;
+            if (el.tagName === 'INPUT' && !/^(text|search|tel|url|email|number|)$/i.test(el.type || '')) return null;
+            return el;
+        }
+        function pttBubble(text, listening = true) {
+            if (!ptt) return;
+            if (!ptt.bubble) {
+                ptt.bubble = document.createElement('div');
+                ptt.bubble.style.cssText = 'position:fixed;z-index:9998;max-width:min(420px,90vw);padding:6px 12px;border-radius:999px;background:#7a0410;color:#fff;font:600 12px/1.4 system-ui,sans-serif;box-shadow:0 6px 18px rgba(0,0,0,.25);pointer-events:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+                document.body.appendChild(ptt.bubble);
+            }
+            const r = ptt.el.getBoundingClientRect();
+            ptt.bubble.style.left = Math.max(8, Math.min(r.left, innerWidth - 300)) + 'px';
+            ptt.bubble.style.top = (r.top > 44 ? r.top - 36 : r.bottom + 8) + 'px';
+            ptt.bubble.innerHTML = `${listening ? '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#fca5a5;margin-right:6px;animation:pttPulse 1s infinite"></span>Listening… ' : ''}${esc(text || (listening ? 'release to stop' : ''))}`;
+        }
+        function pttInsert(text) {
+            if (!ptt || !text) return;
+            const el = ptt.el;
+            if (document.activeElement !== el) el.focus();
+            // a space before, if the cursor is right after a word
+            let before = '';
+            if (el.isContentEditable) {
+                const sel = window.getSelection();
+                if (sel.rangeCount) { const r = sel.getRangeAt(0).cloneRange(); r.collapse(true); r.setStart(el, 0); before = r.toString(); }
+            } else before = (el.value || '').slice(0, el.selectionStart || 0);
+            const t = (before && !/\s$/.test(before) ? ' ' : '') + text.trim();
+            let ok = false;
+            try { ok = document.execCommand('insertText', false, t); } catch (e) {}
+            if (!ok && !el.isContentEditable && el.setRangeText) {
+                el.setRangeText(t, el.selectionStart, el.selectionEnd, 'end');
+                el.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+        }
+        function pttStart() {
+            if (!ptt) return;
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SR) { showToast("Voice input isn't available in this browser"); ptt = null; return; }
+            ptt.active = true;
+            document.body.classList.add('ptt-on');
+            const rec = new SR();
+            rec.lang = 'en-US';
+            rec.continuous = true;
+            rec.interimResults = true;
+            rec.onresult = (ev) => {
+                if (!ptt) return;
+                let interim = '';
+                for (let i = ev.resultIndex; i < ev.results.length; i++) {
+                    const r = ev.results[i];
+                    if (r.isFinal) pttInsert(r[0].transcript);
+                    else interim += r[0].transcript;
+                }
+                pttBubble(interim, !ptt.released);
+            };
+            rec.onerror = (ev) => {
+                const msg = ev.error === 'not-allowed' || ev.error === 'service-not-allowed' ? 'Microphone permission is needed for voice input'
+                    : ev.error === 'network' ? 'Voice input needs an internet connection'
+                    : ev.error === 'no-speech' ? '' : 'Voice input stopped (' + ev.error + ')';
+                if (msg) showToast(msg);
+            };
+            rec.onend = () => pttFinish();
+            ptt.rec = rec;
+            try { rec.start(); } catch (e) { pttFinish(); return; }
+            pttBubble('');
+        }
+        function pttFinish() {
+            document.body.classList.remove('ptt-on');
+            if (ptt && ptt.bubble) ptt.bubble.remove();
+            if (ptt && ptt.el && document.activeElement !== ptt.el) { try { ptt.el.focus(); } catch (e) {} }
+            ptt = null;
+        }
+        document.addEventListener('pointerdown', (e) => {
+            if (e.pointerType !== 'mouse' || e.button !== 0 || ptt) return;
+            const el = pttTarget(e.target);
+            if (!el || !speechSupported()) return;
+            ptt = { el, x: e.clientX, y: e.clientY, active: false };
+            ptt.timer = setTimeout(pttStart, PTT_DELAY);
+        }, true);
+        document.addEventListener('pointermove', (e) => {
+            if (!ptt || ptt.active || e.pointerType !== 'mouse') return;
+            if (Math.abs(e.clientX - ptt.x) > PTT_MOVE || Math.abs(e.clientY - ptt.y) > PTT_MOVE) { clearTimeout(ptt.timer); ptt = null; }
+        }, true);
+        const pttRelease = () => {
+            if (!ptt) return;
+            clearTimeout(ptt.timer);
+            if (!ptt.active) { ptt = null; return; }      // a normal click
+            ptt.released = true;
+            pttBubble('finishing…', false);
+            try { ptt.rec.stop(); } catch (e) { pttFinish(); }
+            // the last words arrive shortly after letting go; never wait forever
+            const mine = ptt;
+            setTimeout(() => { if (ptt === mine) { try { mine.rec.abort(); } catch (e) {} pttFinish(); } }, 4000);
+        };
+        document.addEventListener('pointerup', (e) => { if (e.pointerType === 'mouse') pttRelease(); }, true);
+        window.addEventListener('blur', pttRelease);
+        // while listening, holding the button must not select text or open menus
+        document.addEventListener('selectstart', (e) => { if (ptt && ptt.active) e.preventDefault(); }, true);
+        document.addEventListener('contextmenu', (e) => { if (ptt && ptt.active) e.preventDefault(); }, true);
 
         window.onload = function() {
             applyTheme();
