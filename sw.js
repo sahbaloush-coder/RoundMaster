@@ -3,7 +3,7 @@
    - The app page: tries the internet first (to pick up updates), falls back to the saved copy.
    - Styling, icons and fonts: served from the saved copy.
    Patient data is NOT here - it stays in the app's own storage on the device. */
-const CACHE = 'roundmaster-6916240041';
+const CACHE = 'roundmaster-4b35fe4d56';
 const FILES = [
     "./",
     "./index.html",
@@ -12,14 +12,11 @@ const FILES = [
     "./vendor/fontawesome/css/all.min.css",
     "./vendor/fontawesome/webfonts/fa-solid-900.woff2",
     "./vendor/fontawesome/webfonts/fa-regular-400.woff2",
-    "./icons/rm-heart-180.png",
-    "./icons/rm-heart-192.png",
-    "./icons/rm-heart-512.png",
-    "./icons/rm-heart-maskable-512.png",
-    "./icons/icon-180.png",
-    "./icons/icon-192.png",
-    "./icons/icon-512.png",
-    "./icons/icon-maskable-512.png"
+    "./rm-heart-180.png",
+    "./rm-heart-192.png",
+    "./rm-heart-512.png",
+    "./rm-heart-maskable-512.png",
+    "./apple-touch-icon.png"
 ];
 
 self.addEventListener('install', (event) => {

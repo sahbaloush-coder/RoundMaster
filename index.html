@@ -6,8 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover, interactive-widget=resizes-visual">
     <title>RoundMaster</title>
     <link rel="manifest" href="app-v2.webmanifest">
-    <link rel="apple-touch-icon" href="icons/rm-heart-180.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="icons/rm-heart-192.png">
+    <link rel="apple-touch-icon" href="rm-heart-180.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="rm-heart-192.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="RoundMaster">
@@ -7918,6 +7918,21 @@
 <script>
         if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
             window.addEventListener('load', () => { navigator.serviceWorker.register('sw.js').catch(() => {}); });
+        }
+        // Self-check: are the install files (needed to install the app / show its icon) on the server?
+        if (/^https?:$/.test(location.protocol)) {
+            window.addEventListener('load', () => setTimeout(async () => {
+                const need = ['app-v2.webmanifest', 'rm-heart-180.png', 'rm-heart-192.png', 'rm-heart-512.png', 'rm-heart-maskable-512.png', 'sw.js'];
+                const missing = [];
+                for (const f of need) {
+                    try { const r = await fetch(f + '?check=' + Date.now(), { cache: 'no-store' }); if (!r.ok) missing.push(f); } catch (e) { return; } // offline: skip
+                }
+                if (!missing.length) return;
+                const bar = document.createElement('div');
+                bar.style.cssText = 'position:fixed;left:8px;right:8px;bottom:8px;z-index:9999;background:#7f1d1d;color:#fff;padding:10px 14px;border-radius:12px;font:13px/1.4 system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.3)';
+                bar.innerHTML = '<b>Install files missing on the server:</b> ' + missing.join(', ') + '. Upload them to the main folder of the GitHub repository (next to index.html). <span style="float:right;cursor:pointer;font-weight:700" onclick="this.parentNode.remove()">✕</span>';
+                document.body.appendChild(bar);
+            }, 1500));
         }
     </script>
 </body>
