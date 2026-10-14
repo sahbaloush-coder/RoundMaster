@@ -60,7 +60,7 @@
         .lab-range { font-size: calc(11px * var(--ts, 1)); zoom: 0.82; margin-top: 1px; }
         .note-ph { background: #dcfce7; color: #166534; border-radius: 4px; padding: 0 3px; box-shadow: inset 0 -1px 0 #86efac; }
         .note-ph.filled { background: transparent; color: inherit; padding: 0; box-shadow: none; }
-        .note-user { color: #64748b; } /* your own additions to the note (grey in the app; copied as normal text) */
+        .note-user { color: #b45309; } /* your own additions to the note (amber in the app; copied as normal text) */
         [data-sort-item].dragging { opacity: 0.85; box-shadow: 0 12px 28px rgba(15, 23, 42, 0.18); position: relative; z-index: 30; }
         body.is-dragging, body.is-dragging * { user-select: none !important; -webkit-user-select: none !important; cursor: grabbing !important; }
 
@@ -3143,7 +3143,7 @@
                 } else if (panel.type === 'pcr') {
                     const recs = sortedRecs(raw, 'pcr').filter(recHasContent);
                     if (recs.length) {
-                        lines.push(head('PCR'));
+                        lines.push(head('PCR & RAT'));
                         // Source [Date]⇥⇥bug: Positive / Negative
                         recs.forEach(r => {
                             const res = r.result === 'pos' ? 'Positive' : r.result === 'neg' ? 'Negative' : '';
@@ -3313,20 +3313,22 @@
             const body = saved ? saved.html : noteLinesHtml(buildNoteLines(patientId));
             const btn = 'w-10 h-10 shrink-0 rounded-xl text-base flex items-center justify-center transition';
             document.getElementById('modal-container').innerHTML = `
-                <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
-                    <div class="bg-white rounded-3xl w-full max-w-3xl shadow-2xl flex flex-col" style="max-height: 92vh">
-                        <div class="flex items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-100 flex-wrap">
-                            <div class="min-w-0">
+                <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
+                    <div class="bg-white rounded-3xl w-full max-w-4xl shadow-2xl flex flex-col" style="max-height: 92vh">
+                        <div class="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-100">
+                            <div class="min-w-0 w-full sm:w-auto sm:flex-1">
                                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-file-lines text-slate-500"></i> Note · ${esc(p ? p.name : '')}</h3>
-                                <p class="text-[calc(11px*var(--ts,1))] text-slate-500">Press <b>Tab</b> (<b>Enter</b> on a phone) to move through the <span class="note-ph">placeholders</span>. <span class="note-user font-semibold">Grey text</span> is what you added yourself.</p>
+                                <p class="text-[calc(11px*var(--ts,1))] text-slate-500 sm:whitespace-nowrap">Press <b>Tab</b> (<b>Enter</b> on a phone) to move through the <span class="note-ph">placeholders</span>. <span class="note-user font-semibold">Amber text</span> is what you added yourself.</p>
                                 <p id="note-saved-info" class="text-[calc(11px*var(--ts,1))] font-semibold text-indigo-600 mt-0.5"></p>
                             </div>
-                            <div class="flex items-center gap-2 flex-wrap justify-end">
-                                <span id="note-status" class="text-[calc(11px*var(--ts,1))] font-bold px-2 py-1 rounded-lg"></span>
-                                <button id="note-save-btn" onclick="saveNoteForToday()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white" title="Save for today"><i class="fa-solid fa-floppy-disk"></i></button>
-                                <button id="note-reset-btn" onclick="resetExtractedNote()" class="${btn} bg-white hover:bg-rose-50 text-rose-600 border border-rose-200" title="Reset note"><i class="fa-solid fa-rotate-left"></i></button>
-                                <button onclick="copyExtractedNote()" class="${btn} bg-slate-800 hover:bg-slate-900 text-white" title="Copy note"><i class="fa-solid fa-copy"></i></button>
-                                <button id="note-close-btn" onclick="closeNoteExtract()" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-700" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                            <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:self-stretch">
+                                <span id="note-status" class="text-[calc(11px*var(--ts,1))] font-bold px-2 py-1 rounded-lg whitespace-nowrap"></span>
+                                <div class="flex items-center gap-2 sm:self-end">
+                                    <button id="note-save-btn" onclick="saveNoteForToday()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white" title="Save for today"><i class="fa-solid fa-floppy-disk"></i></button>
+                                    <button id="note-reset-btn" onclick="resetExtractedNote()" class="${btn} bg-white hover:bg-rose-50 text-rose-600 border border-rose-200" title="Reset note"><i class="fa-solid fa-rotate-left"></i></button>
+                                    <button onclick="copyExtractedNote()" class="${btn} bg-slate-800 hover:bg-slate-900 text-white" title="Copy note"><i class="fa-solid fa-copy"></i></button>
+                                    <button id="note-close-btn" onclick="closeNoteExtract()" class="${btn} bg-slate-100 hover:bg-slate-200 text-slate-700" title="Close"><i class="fa-solid fa-xmark"></i></button>
+                                </div>
                             </div>
                         </div>
                         <div id="note-extract" contenteditable="true" spellcheck="false" class="note-doc flex-1 overflow-y-auto px-4 sm:px-6 py-4 text-[calc(14px*var(--ts,1))] leading-relaxed text-slate-900 focus:outline-none">${body}</div>
@@ -3904,7 +3906,7 @@
             critical: { title: 'Cardiac/Critical', icon: 'fa-triangle-exclamation', theme: 'red', rows: [['lactate', 'Lactic'], ['tropi', 'Trop I'], ['bnp', 'BNP']] },
             inflammation: { title: 'Inflammation', icon: 'fa-fire', theme: 'flame', rows: [['crp', 'CRP'], ['procal', 'Procal']] },
             cultures: { title: 'Cultures', icon: 'fa-bacteria', theme: 'teal' },
-            pcr:      { title: 'PCR', icon: 'fa-dna', theme: 'sky' },
+            pcr:      { title: 'PCR & RAT', icon: 'fa-dna', theme: 'sky' },
             ua:       { title: 'Urinalysis', icon: 'fa-flask-vial', theme: 'amber' },
             ulytes:   { title: 'Urine Lytes', icon: 'fa-flask-vial', theme: 'honey', rows: [['na', 'Na'], ['cl', 'Cl'], ['k', 'K'], ['ca', 'Ca'], ['cr', 'Cr'], ['urea', 'Urea'], ['uric', 'Uric']] },
             endocrine: { title: 'Endocrine', icon: 'fa-syringe', theme: 'fuchsia', rows: [['a1c', 'A1c'], ['tsh', 'TSH'], ['ft4', 'Free T4'], ['cortisol', 'Cortisol']] },
@@ -4315,7 +4317,7 @@
                 const removeBtn = (r) => `<button onclick="removeRec(${pid}, '${type}', ${rid(r)})" class="text-slate-300 hover:text-rose-500" title="Delete from this patient's record"><i class="fa-solid fa-xmark text-[calc(11px*var(--ts,1))]"></i></button>`;
                 const cell = (icon, inner, title) => `<div class="flex items-start gap-1.5 min-w-0 flex-1"><span class="shrink-0 w-5 pt-1 text-center text-[calc(11px*var(--ts,1))]" style="color: ${th.icon}" title="${title}">${icon}</span><div class="flex-1 min-w-0">${inner}</div></div>`;
                 const pillCell = (pill, inner, title) => `<div class="flex items-start gap-1.5 min-w-0 flex-1"><span class="shrink-0 pt-0.5" title="${title}">${pill}</span><div class="flex-1 min-w-0">${inner}</div></div>`;
-                const word = { cultures: 'cultures', pcr: 'PCRs', ua: 'urinalyses' }[type];
+                const word = { cultures: 'cultures', pcr: 'PCR / RAT results', ua: 'urinalyses' }[type];
                 const empty = `<div class="px-2 py-2 text-[calc(11px*var(--ts,1))] text-slate-400 italic">No ${word} yet.</div>`;
                 const stacked = (inner) => `${rows.length === 0 ? empty : ''}<div class="divide-y divide-slate-100">${rows.map(r => `<div class="rec-row relative p-2 pr-6 space-y-1.5"><div class="absolute right-1.5 top-2">${removeBtn(r)}</div>${inner(r)}</div>`).join('')}</div>`;
                 let body = '';
@@ -4378,7 +4380,7 @@
                         </div>
                         <div class="pl-6">${area(r, 'note', 'Notes')}</div>`);
                 }
-                const addLabel = { cultures: 'Add culture', pcr: 'Add PCR', ua: 'Add urinalysis' }[type];
+                const addLabel = { cultures: 'Add culture', pcr: 'Add PCR / RAT', ua: 'Add urinalysis' }[type];
                 return wrap(`
                     ${header(esc(def.title))}
                     <div class="${collapsed ? 'hidden' : ''}">
@@ -4656,7 +4658,7 @@
                 Store.savePatients(a2);
                 renderApp();
             };
-            const name = { cultures: 'culture', pcr: 'PCR', ua: 'urinalysis' }[type];
+            const name = { cultures: 'culture', pcr: 'PCR / RAT result', ua: 'urinalysis' }[type];
             if (recHasContent(row)) showConfirm({ title: `Delete this ${name}?`, messageHtml: "It is removed from this patient's record on every day.", confirmLabel: 'Delete', onConfirm: doRemove });
             else doRemove();
         }
