@@ -3314,14 +3314,14 @@
             const btn = 'w-10 h-10 shrink-0 rounded-xl text-base flex items-center justify-center transition';
             document.getElementById('modal-container').innerHTML = `
                 <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 z-50">
-                    <div class="bg-white rounded-3xl w-full max-w-4xl shadow-2xl flex flex-col" style="max-height: 92vh">
+                    <div class="bg-white rounded-3xl w-full max-w-3xl shadow-2xl flex flex-col" style="max-height: 92vh">
                         <div class="flex flex-wrap sm:flex-nowrap items-center justify-between gap-3 px-4 sm:px-5 py-3 border-b border-slate-100">
                             <div class="min-w-0 w-full sm:w-auto sm:flex-1">
                                 <h3 class="text-base font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-file-lines text-slate-500"></i> Note · ${esc(p ? p.name : '')}</h3>
-                                <p class="text-[calc(11px*var(--ts,1))] text-slate-500 sm:whitespace-nowrap">Press <b>Tab</b> (<b>Enter</b> on a phone) to move through the <span class="note-ph">placeholders</span>. <span class="note-user font-semibold">Amber text</span> is what you added yourself.</p>
+                                <p class="text-[calc(11px*var(--ts,1))] text-slate-500"><span class="sm:block">Press <b>Tab</b> (<b>Enter</b> on a phone) to move through the <span class="note-ph">placeholders</span>.</span> <span class="sm:block"><span class="note-user font-semibold">Amber text</span> is what you added yourself.</span></p>
                                 <p id="note-saved-info" class="text-[calc(11px*var(--ts,1))] font-semibold text-indigo-600 mt-0.5"></p>
                             </div>
-                            <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap sm:self-stretch">
+                            <div class="flex items-center justify-between gap-2 w-full sm:w-auto sm:flex-nowrap sm:self-stretch">
                                 <span id="note-status" class="text-[calc(11px*var(--ts,1))] font-bold px-2 py-1 rounded-lg whitespace-nowrap"></span>
                                 <div class="flex items-center gap-2 sm:self-end">
                                     <button id="note-save-btn" onclick="saveNoteForToday()" class="${btn} bg-indigo-600 hover:bg-indigo-700 text-white" title="Save for today"><i class="fa-solid fa-floppy-disk"></i></button>
