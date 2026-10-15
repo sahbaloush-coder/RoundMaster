@@ -1475,6 +1475,12 @@
 
         function handleReorder(key, patientId, from, to, ids) {
 
+            if (key.startsWith('set:')) { // Settings: wards, goals of care, tags, treatment codes
+                const cat = key.slice(4), settings = Store.getSettings();
+                if (Array.isArray(settings[cat])) { moveItem(settings[cat], from, to); Store.saveSettings(settings); }
+                renderApp();
+                return;
+            }
             if (key === 'inpatients' || key === 'consults') {
                 const listKey = key === 'inpatients' ? 'inpatientIds' : 'consultIds';
                 const records = Store.getDailyRecords();
@@ -4102,11 +4108,12 @@
            this consult's entry and the TOC tag, and is not carried to tomorrow's consult list. Reversible. */
         // A consult entry taken over as one of our inpatients: consult details become active issues (same items),
         // the impression moves into the case summary, the primary team goes, and the physician is left for you to fill in.
-        function tocConvert(p, iKey, physician = '') {
+        function tocConvert(p, iKey, physician = '', primaryTeam = '') {
             const inf = p.dayInfo[iKey], note = p.days && p.days[iKey];
             if (note && String(note.impression || '').trim()) {
                 const imp = String(note.impression).trim(), cs = String(inf.caseSummary || '').trim();
-                if (!cs.includes(imp)) inf.caseSummary = cs ? cs + '\n\n' + imp : imp;
+                const head = `Patient was under ${String(primaryTeam || '').trim() || 'the primary team'} Accepted TOC on ${fmtDate(keyDate(iKey))} with the impression:`;
+                if (!cs.includes(imp)) inf.caseSummary = (cs ? cs + '\n\n' : '') + head + '\n' + imp;
                 delete note.impression;
             }
             inf.physician = physician || '';
@@ -4116,7 +4123,7 @@
             const p = Store.getPatients().find(x => x.id === patientId);
             showConfirm({
                 title: 'Transfer of care',
-                messageHtml: `Is <strong>${esc(p ? p.name : '')}</strong> accepted for transfer of care? They'll be added to today's inpatient list with the <strong>${esc(tocTagName())}</strong> tag, and taken off tomorrow's consult list.`,
+                messageHtml: `Is <strong>${esc(p ? p.name : '')}</strong> accepted for transfer of care? They will be added to inpatient list and removed from tomorrow's consult list.`,
                 confirmLabel: 'Yes, accepted',
                 onConfirm: () => doToc(patientId)
             });
@@ -4134,8 +4141,8 @@
             mergeEntry(p, cKey, iKey);
             const inf = p.dayInfo[iKey];
             const tag = tocTagName();
-            if (created) { inf.tags = [tag]; tocConvert(p, iKey, ''); }
-            else { if (!(inf.tags || []).includes(tag)) inf.tags = [...(inf.tags || []), tag]; if (p.days[iKey]) tocConvert(p, iKey, inf.physician); }
+            if (created) { inf.tags = [tag]; tocConvert(p, iKey, '', srcInfo.physician); }
+            else { if (!(inf.tags || []).includes(tag)) inf.tags = [...(inf.tags || []), tag]; if (p.days[iKey]) tocConvert(p, iKey, inf.physician, srcInfo.physician); }
             if (!wasListed) day.inpatientIds.push(patientId);
             const rec = { to: 'toc', at: Date.now(), prevGoc: null, skipTomorrow: true, removedTomorrow: null, postDc: null, toc: { date: currentViewDate, wasListed, created } };
             const tomorrow = addDays(currentViewDate, 1), tday = records[tomorrow];
@@ -4153,7 +4160,7 @@
             const isToc = !!(cur && cur.discharge && cur.discharge.to === 'toc');
             showConfirm({
                 title: isToc ? 'Reverse transfer of care?' : isSign ? 'Reverse sign-off?' : 'Reverse discharge?',
-                messageHtml: isToc ? 'The patient is taken back off today\'s inpatient list (or loses the TOC tag) and tomorrow\'s consult list goes back to how it was.'
+                messageHtml: isToc ? 'Patient will be removed from inpatient list.'
                     : isSign ? 'Tomorrow\'s list and the Post D/C follow-up go back to how they were.' : 'Goals of care, tomorrow\'s list and the Post D/C follow-up go back to how they were.',
                 confirmLabel: 'Reverse',
                 onConfirm: () => {
@@ -6174,7 +6181,7 @@
                     <div class="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
                         <div>
                             <h2 class="text-xl font-bold text-slate-800">Application Settings</h2>
-                            <p class="text-xs text-slate-400 mt-1">Configure Wards, Goals of Care, Tags, Treatment Plan Text Color Codes, and backups.</p>
+                            <p class="text-xs text-slate-400 mt-1">Configure Wards, Goals of Care, Tags, Treatment Code, and backups.</p>
                         </div>
                         <button onclick="router.navigate('home')" class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition">Back to Home</button>
                     </div>
@@ -6234,13 +6241,16 @@
                         icon: `<i class="fa-solid ${icon}"></i>`,
                         actions: `<button onclick="openAddSettingModal('${key}')" class="px-3 py-1.5 ${addCls} rounded-xl text-xs font-semibold transition"><i class="fa-solid fa-plus"></i> ${addLabel}</button>`,
                         body: `
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" data-sort-list="set:${key}">
                                 ${settings[key].map((w, idx) => `
-                                    <div class="p-3 rounded-2xl border flex items-center justify-between shadow-xs" style="background-color: ${esc(w.color)}; color: ${esc(w.fontColor)}">
-                                        <span class="font-bold text-sm">${esc(w.name)}</span>
-                                        <div class="flex items-center space-x-2">
-                                            <button onclick="openEditSettingModal('${key}', ${idx})" class="p-1.5 bg-white/80 rounded-lg hover:bg-white text-xs"><i class="fa-solid fa-pen"></i></button>
-                                            <button onclick="deleteSettingItem('${key}', ${idx})" class="p-1.5 bg-white/80 rounded-lg hover:bg-white text-xs text-rose-600"><i class="fa-solid fa-trash"></i></button>
+                                    <div data-sort-item data-id="${esc(w.id || idx)}" class="rounded-2xl border flex items-stretch overflow-hidden shadow-xs" style="background-color: ${esc(w.color)}; color: ${esc(w.fontColor)}">
+                                        ${gripHandle('rounded-r-xl', 'bg-black/10 text-current')}
+                                        <div class="flex-1 min-w-0 p-3 flex items-center justify-between gap-2">
+                                            <span class="font-bold text-sm">${esc(w.name)}</span>
+                                            <div class="flex items-center space-x-2">
+                                                <button onclick="openEditSettingModal('${key}', ${idx})" class="p-1.5 bg-white/80 rounded-lg hover:bg-white text-xs text-slate-700"><i class="fa-solid fa-pen"></i></button>
+                                                <button onclick="deleteSettingItem('${key}', ${idx})" class="p-1.5 bg-white/80 rounded-lg hover:bg-white text-xs text-rose-600"><i class="fa-solid fa-trash"></i></button>
+                                            </div>
                                         </div>
                                     </div>
                                 `).join('')}
@@ -6249,18 +6259,21 @@
                     })).join('')}
 
                     ${settingsCard('colorcodes', {
-                        title: 'Treatment Plan Text Color Codes',
+                        title: 'Treatment Code',
                         icon: '<i class="fa-solid fa-paintbrush text-blue-400"></i>',
-                        actions: `<button onclick="openAddColorCodeModal()" class="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-xs font-semibold transition"><i class="fa-solid fa-plus"></i> Add Color Code</button>`,
+                        actions: `<button onclick="openAddColorCodeModal()" class="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-xs font-semibold transition"><i class="fa-solid fa-plus"></i> Add Code</button>`,
                         body: `
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" data-sort-list="set:colorCodes">
                                 ${settings.colorCodes.map((c, idx) => `
-                                    <div class="p-3 rounded-2xl border border-slate-200 bg-slate-50 flex items-center justify-between shadow-xs">
+                                    <div data-sort-item data-id="${esc(c.id || idx)}" class="rounded-2xl border border-slate-200 bg-slate-50 flex items-stretch overflow-hidden shadow-xs">
+                                        ${gripHandle('rounded-r-xl', 'bg-slate-200/70 text-slate-400')}
+                                        <div class="flex-1 min-w-0 p-3 flex items-center justify-between gap-2">
                                         <span class="font-bold text-sm" style="color: ${esc(c.color)}">${esc(c.name)}</span>
                                         <div class="flex items-center space-x-2">
                                             <button onclick="openEditColorCodeModal(${idx})" class="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 text-xs text-slate-700"><i class="fa-solid fa-pen"></i></button>
                                             <button onclick="deleteColorCodeItem(${idx})" class="p-1.5 bg-white border border-slate-200 rounded-lg hover:bg-slate-100 text-xs text-rose-600"><i class="fa-solid fa-trash"></i></button>
                                         </div>
+                                    </div>
                                     </div>
                                 `).join('')}
                             </div>`
@@ -7023,7 +7036,7 @@
                 mergeEntry(p, lastKey, key);
                 p.dayInfo[key].tags = [copy.tag]; // old day-to-day tags don't carry over; the readmission / TOC tag does
                 // from a consult to our own list: our physician was the consultant (the consult's "physician" is the primary team)
-                if (copy.toc) tocConvert(p, key, fields.info.physician);
+                if (copy.toc) tocConvert(p, key, fields.info.physician, srcInfo.physician);
             }
             list.push(patientId);
             Store.savePatients(allPatients);
