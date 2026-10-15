@@ -1076,6 +1076,7 @@
             refitTextareasSoon();
             layoutInvestigations();
             watchInvCards();
+            try { inkAnnotate(); inkLayoutSoon(); if (!inkRoot()) { const b = document.getElementById('ink-toolbar'); if (b) b.remove(); } } catch (e) { console.error(e); }
             document.querySelectorAll('.inv-board img').forEach(img => { if (!img.complete) img.addEventListener('load', layoutInvestigations, { once: true }); });
             main.style.minHeight = '';
             if (Math.abs(window.scrollY - keepY) > 1) window.scrollTo(0, keepY);
@@ -4342,6 +4343,7 @@
                 });
                 board.style.height = Math.max(0, Math.max(...heights) - INV_GAP) + 'px';
             });
+            if (typeof inkLayoutSoon === 'function') inkLayoutSoon();
         }
         // Re-arrange the board whenever a card changes height after drawing (fonts / icons loading,
         // a box growing while you type, a photo loading...), so cards never overlap.
@@ -8090,6 +8092,262 @@
         // while listening, holding the button must not select text or open menus
         document.addEventListener('selectstart', (e) => { if (ptt && ptt.active) e.preventDefault(); }, true);
         document.addEventListener('contextmenu', (e) => { if (ptt && ptt.active) e.preventDefault(); }, true);
+
+        /* =========================================================
+           PEN INK (Apple Pencil / stylus) - scribble anywhere on a patient's entry
+           - The pen always draws (fingers scroll, the mouse is unaffected). A quick pen tap still taps.
+           - Writing inside a text box is left to the iPad's own handwriting-to-text (Scribble).
+           - Each scribble is attached to the box it mostly covers (an issue, a plan line, a card, a whole box,
+             or the page), so it moves with that box. Ink is never cut off at a box's edge.
+           - Saved with that day's entry only (not copied to the next day).
+           ========================================================= */
+        const INK_COLORS = [['#111827', 'Black'], ['#dc2626', 'Red'], ['#2563eb', 'Blue'], ['#16a34a', 'Green']];
+        const INK_HL = '#facc15';
+        let inkTool = { color: '#111827', width: 2, hl: false, eraser: false };
+        let inkDraw = null;            // the stroke being drawn
+        let inkUndo = [];              // [{ key, anchor, stroke }] this entry
+        let inkCache = [];             // rendered strokes in page coordinates (for the eraser)
+        let inkHideTimer = null;
+        function inkRoot() { return currentRoute === 'patient_file' ? document.querySelector('#main-view > [data-ink="page"]') : null; }
+        function inkScale(root) { const r = root.getBoundingClientRect(); return root.offsetWidth ? r.width / root.offsetWidth : 1; }
+        // Name the boxes ink can attach to (done after every redraw)
+        function inkAnnotate() {
+            const main = document.getElementById('main-view');
+            const root = main && main.firstElementChild;
+            if (!root || currentRoute !== 'patient_file') return;
+            root.setAttribute('data-ink', 'page');
+            if (getComputedStyle(root).position === 'static') root.style.position = 'relative';
+            const box = (el) => el && el.closest('.rounded-2xl, .rounded-3xl');
+            const set = (el, id) => { if (el && !el.hasAttribute('data-ink')) el.setAttribute('data-ink', id); };
+            root.querySelectorAll('[data-sort-list="issues"] > [data-sort-item]').forEach(el => set(el, 'issue:' + el.dataset.id));
+            ['plan', 'dcplan'].forEach(k => root.querySelectorAll(`[data-sort-list="${k}"] > [data-sort-item]`).forEach(el => set(el, k + ':' + el.dataset.id)));
+            root.querySelectorAll('[data-sort-list="medbg"] > [data-sort-item]').forEach(el => set(el, 'mb:' + el.dataset.id));
+            root.querySelectorAll('.inv-board > .inv-card').forEach(el => set(el, 'card:' + el.dataset.id));
+            [['issues', 'box:issues'], ['plan', 'box:plan'], ['dcplan', 'box:dcplan'], ['medbg', 'box:medbg']].forEach(([k, id]) => {
+                const l = root.querySelector(`[data-sort-list="${k}"]`); set(box(l), id);
+            });
+            set(box(root.querySelector('.inv-board') || root.querySelector('[data-sort-list="inv"]')), 'box:inv');
+            set(box(root.querySelector('.det-grid')), 'box:details');
+            root.querySelectorAll('button[onclick^="toggleMemoCollapse("]').forEach(b => { const k = (b.getAttribute('onclick').match(/'(\w+)'/) || [])[1]; if (k && b.closest('.size-scale, .rounded-2xl')) set(box(b), 'memo:' + k); });
+        }
+        function inkNote(all) { return all ? dayNoteFor(all, activePatientId) : (() => { const p = Store.getPatients().find(x => x.id === activePatientId); return p && getDayNote(p, curKey()); })(); }
+        // Draw all of this entry's ink at the boxes' current places
+        let inkRaf = 0;
+        function inkLayoutSoon() { cancelAnimationFrame(inkRaf); inkRaf = requestAnimationFrame(inkLayout); }
+        function inkLayout() {
+            const root = inkRoot();
+            inkCache = [];
+            if (!root) return;
+            let svg = root.querySelector(':scope > svg.ink-layer');
+            const note = inkNote();
+            const ink = (note && note.ink) || {};
+            const keys = Object.keys(ink).filter(k => (ink[k] || []).length);
+            if (!keys.length && !inkDraw) { if (svg) svg.remove(); return; }
+            if (!svg) {
+                svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('class', 'ink-layer');
+                svg.style.cssText = 'position:absolute;left:0;top:0;width:1px;height:1px;overflow:visible;pointer-events:none;z-index:20';
+                root.appendChild(svg);
+            }
+            const z = inkScale(root), rr = root.getBoundingClientRect();
+            let html = '';
+            keys.forEach(key => {
+                const a = key === 'page' ? root : root.querySelector(`[data-ink="${CSS.escape(key)}"]`);
+                if (!a) return;
+                const ar = a.getBoundingClientRect();
+                if (!ar.width || !ar.height || !a.offsetParent && a !== root) return; // hidden (collapsed)
+                const ax = (ar.left - rr.left) / z, ay = (ar.top - rr.top) / z, aw = a.offsetWidth || 1;
+                ink[key].forEach((st, i) => {
+                    const sc = st.aw ? aw / st.aw : 1;
+                    const pts = [];
+                    for (let j = 0; j < st.p.length; j += 2) pts.push([ax + st.p[j] * sc, ay + st.p[j + 1] * sc]);
+                    inkCache.push({ key, i, pts, w: st.w * (st.hl ? 1 : 1) });
+                    html += inkPath(pts, st);
+                });
+            });
+            if (inkDraw && inkDraw.pts.length) html += inkPath(inkDraw.pts, inkDraw.st);
+            svg.innerHTML = html;
+        }
+        function inkPath(pts, st) {
+            if (!pts.length) return '';
+            let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+            if (pts.length === 1) d += `l0.1 0`;
+            for (let i = 1; i < pts.length - 1; i++) {
+                const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2;
+                d += `Q${pts[i][0].toFixed(1)} ${pts[i][1].toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`;
+            }
+            if (pts.length > 1) { const l = pts[pts.length - 1]; d += `L${l[0].toFixed(1)} ${l[1].toFixed(1)}`; }
+            return `<path d="${d}" fill="none" stroke="${st.c}" stroke-width="${st.w}" stroke-linecap="round" stroke-linejoin="round"${st.hl ? ' stroke-opacity="0.4"' : ''}/>`;
+        }
+        // After a stroke: attach it to the smallest box that holds most of it (else the page)
+        function inkPickAnchor(root, pts) {
+            const z = inkScale(root), rr = root.getBoundingClientRect();
+            let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
+            pts.forEach(([x, y]) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); });
+            // to screen coordinates; give thin marks (underlines, ticks) a little height
+            const pad = 6;
+            const bx1 = rr.left + x1 * z - pad, by1 = rr.top + y1 * z - pad, bx2 = rr.left + x2 * z + pad, by2 = rr.top + y2 * z + pad;
+            const area = (bx2 - bx1) * (by2 - by1);
+            let best = null, bestArea = Infinity;
+            root.querySelectorAll('[data-ink]').forEach(a => {
+                if (a === root || (!a.offsetParent)) return;
+                const r = a.getBoundingClientRect();
+                const ox = Math.max(0, Math.min(bx2, r.right) - Math.max(bx1, r.left)), oy = Math.max(0, Math.min(by2, r.bottom) - Math.max(by1, r.top));
+                const cover = (ox * oy) / area;            // how much of the scribble sits on this box
+                const fill = (ox * oy) / (r.width * r.height); // how much of the box the scribble spans (circling a box)
+                const a2 = r.width * r.height;
+                if ((cover >= 0.6 || (fill >= 0.75 && cover >= 0.45)) && a2 < bestArea) { best = a; bestArea = a2; }
+            });
+            return best || root;
+        }
+        function inkSave(root, pts, st) {
+            const a = inkPickAnchor(root, pts);
+            const key = a === root ? 'page' : a.getAttribute('data-ink');
+            const z = inkScale(root), rr = root.getBoundingClientRect(), ar = a.getBoundingClientRect();
+            const ax = (ar.left - rr.left) / z, ay = (ar.top - rr.top) / z;
+            const flat = [];
+            pts.forEach(([x, y]) => flat.push(Math.round((x - ax) * 10) / 10, Math.round((y - ay) * 10) / 10));
+            const stroke = { c: st.c, w: st.w, hl: st.hl || undefined, aw: a.offsetWidth || 1, p: flat };
+            const all = Store.getPatients();
+            const note = inkNote(all);
+            if (!note) return;
+            if (!note.ink) note.ink = {};
+            (note.ink[key] = note.ink[key] || []).push(stroke);
+            Store.savePatients(all);
+            inkUndo.push({ entry: activePatientId + '|' + curKey(), key, stroke: JSON.stringify(stroke) });
+        }
+        function inkEraseAt(x, y) {
+            const hit = inkCache.filter(c => c.pts.some((pt, j) => {
+                const q = c.pts[j + 1] || pt;
+                const dx = q[0] - pt[0], dy = q[1] - pt[1], L = dx * dx + dy * dy;
+                const t = L ? Math.max(0, Math.min(1, ((x - pt[0]) * dx + (y - pt[1]) * dy) / L)) : 0;
+                const ex = pt[0] + t * dx - x, ey = pt[1] + t * dy - y;
+                return Math.sqrt(ex * ex + ey * ey) <= c.w / 2 + 8;
+            }));
+            if (!hit.length) return;
+            const all = Store.getPatients();
+            const note = inkNote(all);
+            if (!note || !note.ink) return;
+            const drop = {};
+            hit.forEach(h => (drop[h.key] = drop[h.key] || new Set()).add(h.i));
+            Object.entries(drop).forEach(([k, set]) => { note.ink[k] = (note.ink[k] || []).filter((_, i) => !set.has(i)); if (!note.ink[k].length) delete note.ink[k]; });
+            Store.savePatients(all);
+            inkLayout();
+        }
+        function inkUndoLast() {
+            const entry = activePatientId + '|' + curKey();
+            for (let i = inkUndo.length - 1; i >= 0; i--) {
+                const u = inkUndo[i];
+                if (u.entry !== entry) continue;
+                inkUndo.splice(i, 1);
+                const all = Store.getPatients();
+                const note = inkNote(all);
+                const list = note && note.ink && note.ink[u.key];
+                const at = list ? list.map(x => JSON.stringify(x)).lastIndexOf(u.stroke) : -1;
+                if (at === -1) continue; // already erased: undo the one before
+                list.splice(at, 1);
+                if (!list.length) delete note.ink[u.key];
+                Store.savePatients(all);
+                inkLayout(); inkToolbar();
+                return;
+            }
+            showToast('Nothing to undo');
+        }
+        let inkClearArmed = false;
+        function inkClearAll() {
+            if (!inkClearArmed) { inkClearArmed = true; showToast('Tap clear again to remove all ink on this entry'); setTimeout(() => { inkClearArmed = false; inkToolbar(); }, 3000); inkToolbar(); return; }
+            inkClearArmed = false;
+            const all = Store.getPatients();
+            const note = inkNote(all);
+            if (note && note.ink) { delete note.ink; Store.savePatients(all); }
+            inkLayout(); inkToolbar();
+        }
+        // Floating pen toolbar: shows while the pen is near / in use, hides a few seconds after
+        function inkToolbar(show = true) {
+            let bar = document.getElementById('ink-toolbar');
+            if (!inkRoot()) { if (bar) bar.remove(); return; }
+            if (!bar) {
+                bar = document.createElement('div');
+                bar.id = 'ink-toolbar';
+                bar.style.cssText = 'position:fixed;right:12px;bottom:12px;z-index:9997;display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:16px;background:rgba(255,255,255,0.97);box-shadow:0 8px 24px rgba(15,23,42,0.22);border:1px solid #e2e8f0;transition:opacity .2s';
+                document.body.appendChild(bar);
+            }
+            const t = inkTool;
+            const sel = 'box-shadow:0 0 0 2px #fff,0 0 0 4px #7a0410';
+            const dot = (c, title, active, extra = '') => `<button data-ink-ui onclick="inkSet({color:'${c}', hl:${c === INK_HL}, eraser:false})" title="${title}" style="width:26px;height:26px;border-radius:50%;background:${c};${c === INK_HL ? 'opacity:.75;' : ''}border:1px solid rgba(0,0,0,.15);${active ? sel : ''}${extra}"></button>`;
+            const btn = (onclick, icon, title, active) => `<button data-ink-ui onclick="${onclick}" title="${title}" style="width:30px;height:30px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:13px;color:${active ? '#fff' : '#475569'};background:${active ? '#7a0410' : '#f1f5f9'}"><i class="fa-solid ${icon}"></i></button>`;
+            bar.innerHTML = INK_COLORS.map(([c, n]) => dot(c, n, !t.eraser && !t.hl && t.color === c)).join('')
+                + dot(INK_HL, 'Highlighter', !t.eraser && t.hl)
+                + '<span style="width:1px;height:22px;background:#e2e8f0;margin:0 2px"></span>'
+                + btn("inkSet({width:2})", 'fa-minus', 'Thin', !t.hl && !t.eraser && t.width === 2)
+                + btn("inkSet({width:4})", 'fa-grip-lines', 'Thick', !t.hl && !t.eraser && t.width === 4)
+                + btn("inkSet({eraser:!inkTool.eraser})", 'fa-eraser', 'Eraser', t.eraser)
+                + btn('inkUndoLast()', 'fa-rotate-left', 'Undo', false)
+                + btn('inkClearAll()', 'fa-trash', 'Clear all ink on this entry', inkClearArmed);
+            bar.style.opacity = '1'; bar.style.pointerEvents = 'auto';
+            clearTimeout(inkHideTimer);
+            if (show) inkHideTimer = setTimeout(() => { if (!inkDraw && bar.isConnected) { bar.style.opacity = '0'; bar.style.pointerEvents = 'none'; } }, 4000);
+        }
+        function inkSet(o) { Object.assign(inkTool, o); if (o.color) inkTool.eraser = false; inkToolbar(); }
+        function inkPoint(root, e) { const z = inkScale(root), rr = root.getBoundingClientRect(); return [(e.clientX - rr.left) / z, (e.clientY - rr.top) / z]; }
+        function inkStartable(e) {
+            if (e.pointerType !== 'pen') return null;
+            const root = inkRoot();
+            if (!root || !e.target.closest) return null;
+            // anywhere on the record page (including the margins), but not text boxes (Apple's handwriting-to-text),
+            // pop-ups, the pen toolbar or the app's top bar
+            if (e.target.closest(TYPING_SEL + ', [data-ink-ui], #ink-toolbar, #modal-container, #app-header, #color-picker')) return null;
+            return root;
+        }
+        document.addEventListener('pointerdown', (e) => {
+            const root = inkStartable(e);
+            if (!root) return;
+            inkDraw = { root, id: e.pointerId, start: [e.clientX, e.clientY], started: false, pts: [inkPoint(root, e)],
+                st: { c: inkTool.hl ? INK_HL : inkTool.color, w: inkTool.hl ? 14 : inkTool.width, hl: inkTool.hl }, eraser: inkTool.eraser };
+            inkToolbar(false);
+        }, true);
+        document.addEventListener('pointermove', (e) => {
+            if (e.pointerType === 'pen' && !inkDraw && e.buttons === 0 && inkRoot()) { inkToolbar(); return; } // pencil hovering
+            if (!inkDraw || e.pointerId !== inkDraw.id) return;
+            const d = inkDraw;
+            if (!d.started) {
+                if (Math.hypot(e.clientX - d.start[0], e.clientY - d.start[1]) < 4) return; // still a tap
+                d.started = true;
+                try { e.target.releasePointerCapture && e.target.releasePointerCapture(e.pointerId); } catch (err) {}
+                window.getSelection().removeAllRanges();
+            }
+            e.preventDefault();
+            const pt = inkPoint(d.root, e);
+            if (d.eraser) { inkEraseAt(pt[0], pt[1]); return; }
+            const last = d.pts[d.pts.length - 1];
+            if (Math.hypot(pt[0] - last[0], pt[1] - last[1]) >= 1.5) { d.pts.push(pt); inkLayoutSoon(); }
+        }, { capture: true, passive: false });
+        const inkEnd = (e) => {
+            if (!inkDraw || e.pointerId !== inkDraw.id) return;
+            const d = inkDraw;
+            inkDraw = null;
+            if (d.started) {
+                // a drawn stroke must not also click what it ended on
+                const stopClick = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+                document.addEventListener('click', stopClick, { capture: true, once: true });
+                setTimeout(() => document.removeEventListener('click', stopClick, true), 250);
+                if (!d.eraser && d.pts.length) inkSave(d.root, d.pts, d.st);
+            }
+            inkLayout();
+            inkToolbar();
+        };
+        document.addEventListener('pointerup', inkEnd, true);
+        document.addEventListener('pointercancel', inkEnd, true);
+        // The pencil must not scroll the page or select text while drawing (fingers still scroll)
+        document.addEventListener('touchmove', (e) => {
+            if (!inkRoot()) return;
+            const pen = [...e.touches].some(t => t.touchType === 'stylus');
+            if (pen && !(e.target.closest && e.target.closest(TYPING_SEL + ', #modal-container'))) e.preventDefault();
+        }, { passive: false });
+        document.addEventListener('selectstart', (e) => { if (inkDraw && inkDraw.started) e.preventDefault(); }, true);
+        // keep ink on its boxes when things move or resize
+        window.addEventListener('resize', inkLayoutSoon);
+        try { new ResizeObserver(() => inkLayoutSoon()).observe(document.getElementById('main-view')); } catch (e) {}
 
         window.onload = function() {
             applyTheme();
