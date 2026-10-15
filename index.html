@@ -8001,36 +8001,61 @@
                 el.dispatchEvent(new Event('input', { bubbles: true }));
             }
         }
+        // Android's Chrome repeats finished phrases when listening continuously, so there it listens one
+        // phrase at a time and quietly starts again while the button is still held. Each phrase is typed once.
         function pttStart() {
             if (!ptt) return;
-            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-            if (!SR) { showToast("Voice input isn't available in this browser"); ptt = null; return; }
+            if (!speechSupported()) { showToast("Voice input isn't available in this browser"); ptt = null; return; }
             ptt.active = true;
             document.body.classList.add('ptt-on');
+            pttBubble('');
+            pttListen();
+        }
+        function pttListen() {
+            const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+            const mine = ptt;
+            if (!mine) return;
             const rec = new SR();
             rec.lang = 'en-US';
-            rec.continuous = true;
+            rec.continuous = !IS_ANDROID;
             rec.interimResults = true;
+            let lastTyped = '', phrase = '';
             rec.onresult = (ev) => {
-                if (!ptt) return;
+                if (ptt !== mine) return;
                 let interim = '';
                 for (let i = ev.resultIndex; i < ev.results.length; i++) {
                     const r = ev.results[i];
-                    if (r.isFinal) pttInsert(r[0].transcript);
-                    else interim += r[0].transcript;
+                    const text = (r[0].transcript || '').trim();
+                    if (r.isFinal) {
+                        if (!text) continue;
+                        // Android: keep only the latest version of this phrase; it is typed once, when the phrase ends
+                        if (IS_ANDROID) { phrase = text; continue; }
+                        if (text.toLowerCase() === lastTyped.toLowerCase()) continue; // the same phrase delivered twice
+                        lastTyped = text;
+                        pttInsert(text);
+                    } else interim += r[0].transcript;
                 }
-                pttBubble(interim, !ptt.released);
+                pttBubble(IS_ANDROID && phrase && !interim ? phrase : interim, !mine.released);
             };
+            const flushPhrase = () => { if (phrase && ptt === mine) { pttInsert(phrase); phrase = ''; } };
             rec.onerror = (ev) => {
+                if (ptt !== mine) return;
+                if (ev.error === 'no-speech' || ev.error === 'aborted') return; // silence: keep going while held
                 const msg = ev.error === 'not-allowed' || ev.error === 'service-not-allowed' ? 'Microphone permission is needed for voice input'
                     : ev.error === 'network' ? 'Voice input needs an internet connection'
-                    : ev.error === 'no-speech' ? '' : 'Voice input stopped (' + ev.error + ')';
-                if (msg) showToast(msg);
+                    : 'Voice input stopped (' + ev.error + ')';
+                showToast(msg);
+                mine.failed = true;
             };
-            rec.onend = () => pttFinish();
-            ptt.rec = rec;
-            try { rec.start(); } catch (e) { pttFinish(); return; }
-            pttBubble('');
+            rec.onend = () => {
+                if (ptt !== mine) return;
+                flushPhrase();
+                // still holding (and nothing went wrong): listen for the next phrase
+                if (!mine.released && !mine.failed) { setTimeout(() => { if (ptt === mine && !mine.released) pttListen(); }, 50); return; }
+                pttFinish();
+            };
+            mine.rec = rec;
+            try { rec.start(); } catch (e) { pttFinish(); }
         }
         function pttFinish() {
             document.body.classList.remove('ptt-on');
