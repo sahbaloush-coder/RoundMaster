@@ -2108,8 +2108,9 @@
                     </div>
 
                     <div class="list-grid grid grid-cols-1 lg:grid-cols-4 gap-4">
+                        <div class="list-side flex flex-col min-w-0">
                         ${`
-                            <div class="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col ${physiciansCollapsed() ? '' : 'space-y-3'} self-start">
+                            <div class="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col ${physiciansCollapsed() ? '' : 'space-y-3'}">
                                 <div class="flex items-center justify-between flex-wrap gap-x-2 gap-y-1.5">
                                     <button onclick="togglePhysiciansBox()" class="font-bold text-slate-800 text-sm flex items-center gap-2 whitespace-nowrap">
                                         Physicians (${phys.length})
@@ -2139,6 +2140,9 @@
                                 </div>
                             </div>
                         `}
+                            <!-- free space under the physicians: pen notes (on a phone they show under the patient list instead) -->
+                            <div class="flex-1 min-h-0" data-ink="side:notes"></div>
+                        </div>
 
                         <div class="list-main lg:col-span-3 flex flex-col space-y-4 min-w-0">
                             <div class="flex items-center justify-between">
@@ -2159,8 +2163,11 @@
                             </div>
 
                             ${renderPostDcBox(dayData, cfg.tone)}
+                            <div data-ink-alt="side:notes" style="height:0"></div>
                         </div>
                     </div>
+                    <!-- bottom of the list: ink written here stays below the cards, however they open or close -->
+                    <div data-ink="foot" class="flex-1" style="min-height: 72px; margin-top: 0"></div>
                 </div>
             `;
         }
@@ -2618,6 +2625,8 @@
                                 <i class="fa-solid fa-file-lines"></i> Extract Note
                             </button>
                         </div>
+                        <!-- bottom of the record: ink written here stays at the bottom, however the boxes above open or close -->
+                        <div data-ink="foot" class="flex-1" style="min-height: 72px; margin-top: 0"></div>
                     </div>
                 </div>
             `;
@@ -8335,6 +8344,9 @@
                 setL(root.querySelector('.list-main'), 'box:list');
                 const physFold = phys && phys.querySelector('.fa-chevron-down');
                 const pb = root.querySelector('[data-ink="box:phys"]'); if (pb) pb.toggleAttribute('data-ink-fold', !!physFold);
+                // "Hide details" folds the patient cards, and the ink on them with them
+                const hid = hideCardDetails(currentRoute);
+                root.querySelectorAll('[data-ink^="pt:"], [data-ink="box:list"]').forEach(el => el.toggleAttribute('data-ink-fold', hid));
                 return;
             }
             const box = (el) => el && el.closest('.rounded-2xl, .rounded-3xl');
@@ -8360,6 +8372,7 @@
             root.querySelectorAll('[data-ink]').forEach(el => { if (el !== root) el.toggleAttribute('data-ink-fold', !!folded(el.getAttribute('data-ink'))); });
         }
         const inkFolded = (a) => !!(a.closest && a.closest('[data-ink-fold]'));
+        const inkInFoldedParent = (a) => !!(a.parentElement && a.parentElement.closest('[data-ink-fold]'));
         function inkNote(all) {
             if (inkIsList()) { const k = inkListKey(); return all ? (all[k] = all[k] || {}) : (Store.get('list_ink', {})[k] || null); }
             return all ? dayNoteFor(all, activePatientId) : (() => { const p = Store.getPatients().find(x => x.id === activePatientId); return p && getDayNote(p, curKey()); })();
@@ -8577,21 +8590,33 @@
             }
             const keys = Object.keys(ink).filter(k => (ink[k] || []).length);
             if (!keys.length && !inkDraw && !inkSel) { if (ov) ov.querySelector('.ink-saved').innerHTML = ''; const hlL = inkHlLayer(false); if (hlL) hlL.querySelector('.ink-saved').innerHTML = ''; return; }
+            root.querySelectorAll('[data-ink-alt]').forEach(el => { el.style.height = '0'; });
             const svg = inkOverlay(true).querySelector('.ink-saved');
             let hl = '', pen = '';
             keys.forEach(key => {
-                const a = key === 'page' ? root : root.querySelector(`[data-ink="${CSS.escape(key)}"]`);
+                const a = inkAnchorEl(root, key);
                 if (!a) return;
+                if (a.hasAttribute('data-ink-alt')) { // phone: make room for these notes under the list
+                    const w = a.getBoundingClientRect().width;
+                    const bottom = Math.max(0, ...ink[key].map(st => { const sp = inkDec(st).p, k = inkScaleFor(a, w, st.aw); let m = 0; for (let j = 1; j < sp.length; j += 2) m = Math.max(m, sp[j] * k); return m; }));
+                    a.style.height = Math.ceil(bottom + 10) + 'px';
+                }
                 const r = a.getBoundingClientRect();
-                if (!r.width || !r.height || (a !== root && (!a.offsetParent || inkFolded(a)))) return; // hidden (collapsed)
+                if (!r.width || !r.height || (a !== root && (!a.offsetParent || inkInFoldedParent(a)))) return; // inside a closed box
+                const folded = a !== root && a.hasAttribute('data-ink-fold');
                 if (a.hasAttribute('data-ink-pad')) { // scribble space: shown only while there is room for it
-                    const sc0 = (st) => st.aw ? r.width / st.aw : 1;
+                    const sc0 = (st) => inkScale(r.width, st.aw);
                     const bottom = Math.max(...ink[key].map(st => { const sp = inkDec(st).p; let m = 0; for (let j = 1; j < sp.length; j += 2) m = Math.max(m, sp[j] * sc0(st)); return m; }));
                     if (bottom > r.height + 24) return;
                 }
                 const [ax, ay] = pageXY(r.left, r.top);
                 ink[key].forEach(st => {
-                    const sc = st.aw ? r.width / st.aw : 1;
+                    const sc = inkScaleFor(a, r.width, st.aw);
+                    if (folded) { // closed box: show only ink that sits on its still-visible part
+                        const sp = inkDec(st).p; let maxY = -Infinity;
+                        for (let j = 1; j < sp.length; j += 2) maxY = Math.max(maxY, sp[j] * sc);
+                        if (maxY > r.height + 6) return;
+                    }
                     const off = move && move.ids.has(st.id) ? [move.dx, move.dy] : [0, 0];
                     const pts = [];
                     const dec = inkDec(st), sp = dec.p;
@@ -8638,6 +8663,14 @@
             btn.style.top = (b[1] - 40) + 'px';
         }
         // ---- attach strokes to the box they sit on ----
+        // Ink follows its box's width on other screens, scaled evenly (same factor across and down, so the
+        // handwriting keeps its proportions). On a much narrower screen it only shrinks so far (to 65%),
+        // so it stays readable - it may then run a little past the box's edge.
+        function inkScale(w, aw) {
+            if (!aw || !w) return 1;
+            const f = w / aw;
+            return f < 1 ? Math.max(f, 0.65) : Math.min(f, 1.5);
+        }
         function inkPickAnchor(root, pts) {
             let x1 = Infinity, y1 = Infinity, x2 = -Infinity, y2 = -Infinity;
             pts.forEach(([x, y]) => { x1 = Math.min(x1, x); y1 = Math.min(y1, y); x2 = Math.max(x2, x); y2 = Math.max(y2, y); });
@@ -8646,17 +8679,42 @@
             const area = (bx2 - bx1) * (by2 - by1);
             let best = null, bestArea = Infinity;
             root.querySelectorAll('[data-ink]').forEach(a => {
-                if (a === root || !a.offsetParent || inkFolded(a) || a.hasAttribute('data-ink-pad')) return;
+                if (a === root || !a.offsetParent || inkInFoldedParent(a) || a.hasAttribute('data-ink-pad') || a.getAttribute('data-ink') === 'box:list') return;
                 const r = a.getBoundingClientRect();
                 if (!r.width || !r.height) return;
                 const ox = Math.max(0, Math.min(bx2, r.right) - Math.max(bx1, r.left)), oy = Math.max(0, Math.min(by2, r.bottom) - Math.max(by1, r.top));
                 const cover = (ox * oy) / area, fill = (ox * oy) / (r.width * r.height), a2 = r.width * r.height;
                 if ((cover >= 0.6 || (fill >= 0.75 && cover >= 0.45)) && a2 < bestArea) { best = a; bestArea = a2; }
             });
-            return best || root;
+            if (best) return best;
+            // Not on any box: attach to the nearest one, so the ink stays beside it on any screen
+            const cx = (bx1 + bx2) / 2, cy = (by1 + by2) / 2;
+            let near = null, nd = Infinity;
+            root.querySelectorAll('[data-ink]').forEach(a => {
+                if (a === root || !a.offsetParent || inkInFoldedParent(a) || a.hasAttribute('data-ink-pad') || a.getAttribute('data-ink') === 'box:list') return;
+                const r = a.getBoundingClientRect();
+                if (!r.width || !r.height) return;
+                const dx = Math.max(r.left - cx, 0, cx - r.right), dy = Math.max(r.top - cy, 0, cy - r.bottom);
+                // prefer whole boxes over small items inside them when equally close
+                const d = Math.hypot(dx, dy) + (/^(box|memo|card|pt):/.test(a.getAttribute('data-ink')) ? 0 : 12);
+                if (d < nd) { nd = d; near = a; }
+            });
+            return near || root;
         }
-        function inkAnchorPos(root, key) {
+        // The element a key's ink is drawn on. Notes under the physicians list have nowhere to go when the
+        // list is stacked (phone held upright), so they are shown in a spot below the patient cards instead.
+        function inkAnchorEl(root, key) {
             const a = key === 'page' ? root : root.querySelector(`[data-ink="${CSS.escape(key)}"]`);
+            if (a && key === 'side:notes') {
+                const r = a.getBoundingClientRect(), stacked = r.height < 8 || r.width < 120 || (root.querySelector('.list-main') && root.querySelector('.list-main').getBoundingClientRect().top > r.bottom - 1);
+                const alt = root.querySelector('[data-ink-alt="side:notes"]');
+                if (stacked && alt) return alt;
+            }
+            return a;
+        }
+        const inkScaleFor = (a, w, aw) => a && a.hasAttribute('data-ink-alt') ? Math.min(1, inkScale(w, aw)) : inkScale(w, aw);
+        function inkAnchorPos(root, key) {
+            const a = inkAnchorEl(root, key);
             if (!a) return null;
             const r = a.getBoundingClientRect();
             const [x, y] = pageXY(r.left, r.top);
@@ -8689,7 +8747,7 @@
         function inkAbs(root, note, id) {
             const f = inkFind(note, id); if (!f) return null;
             const pos = inkAnchorPos(root, f.k); if (!pos) return null;
-            const sc = f.st.aw ? pos.w / f.st.aw : 1;
+            const sc = inkScaleFor(pos.a, pos.w, f.st.aw);
             const sp = inkDec(f.st).p;
             const abs = []; for (let j = 0; j < sp.length; j += 2) abs.push([pos.x + sp[j] * sc, pos.y + sp[j + 1] * sc]);
             return { st: f.st, abs, sc };
@@ -8886,6 +8944,7 @@
         function inkNoInkZone(el) {
             if (!el || !el.closest) return false;
             if (el.closest('[data-ink-pad]')) return true;
+            if (el.closest('.rec-sticky')) return true; // the record's name bar stays pinned while scrolling
             return !!(el.closest('.inv-board') && !el.closest('.inv-card'));
         }
         const inside = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
@@ -8905,9 +8964,8 @@
             }
             const kind = inkTool.mode === 'eraser' ? 'eraser' : inkTool.mode === 'lasso' ? 'lasso' : 'pen';
             if (kind === 'pen' && inkNoInkZone(e.target)) {
-                e.preventDefault();
-                const now = Date.now();
-                if (now - inkZoneToastAt > 1500) { inkZoneToastAt = now; showToast("Ink can't be added here"); }
+                // taps still work normally here (buttons, date…); only writing is refused
+                inkDraw = { kind: 'blocked', root, id: e.pointerId, start: [e.clientX, e.clientY], started: false };
                 return;
             }
             inkDraw = { kind, root, id: e.pointerId, start: [e.clientX, e.clientY], started: false, pts: [p0], prs: [e.pressure || 0.5],
@@ -8922,6 +8980,14 @@
             }
             if (!inkDraw || e.pointerId !== inkDraw.id) return;
             const d = inkDraw;
+            if (d.kind === 'blocked') {
+                if (!d.started && Math.hypot(e.clientX - d.start[0], e.clientY - d.start[1]) >= 3) {
+                    d.started = true;
+                    const now = Date.now();
+                    if (now - inkZoneToastAt > 1500) { inkZoneToastAt = now; showToast("Ink can't be added here"); }
+                }
+                return;
+            }
             if (d.kind === 'eraser') inkEraserCursor(e.clientX, e.clientY, true);
             if (!d.started) {
                 if (Math.hypot(e.clientX - d.start[0], e.clientY - d.start[1]) < 3) return; // still a tap
@@ -8953,6 +9019,7 @@
             if (!inkDraw || e.pointerId !== inkDraw.id) return;
             const d = inkDraw;
             inkDraw = null;
+            if (d.kind === 'blocked') return;
             cancelAnimationFrame(inkLiveRaf);
             const ov = inkOverlay(false);
             if (ov) ov.querySelector('.ink-live').innerHTML = '';
