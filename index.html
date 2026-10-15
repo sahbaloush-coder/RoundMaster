@@ -8603,7 +8603,9 @@
                 return inkLayout(move);
             }
             const keys = Object.keys(ink).filter(k => (ink[k] || []).length);
-            if (!keys.length && !inkDraw && !inkSel) { if (ov) ov.querySelector('.ink-saved').innerHTML = ''; const hlL = inkHlLayer(false); if (hlL) hlL.querySelector('.ink-saved').innerHTML = ''; return; }
+            const thl = (note && note.thl) || [];
+            inkSlotCache = new Map();
+            if (!keys.length && !thl.length && !inkDraw && !inkSel) { if (ov) ov.querySelector('.ink-saved').innerHTML = ''; const hlL = inkHlLayer(false); if (hlL) hlL.querySelector('.ink-saved').innerHTML = ''; return; }
             root.querySelectorAll('[data-ink-alt]').forEach(el => { el.style.height = '0'; });
             const svg = inkOverlay(true).querySelector('.ink-saved');
             let hl = '', pen = '';
@@ -8624,19 +8626,58 @@
                     if (bottom > r.height + 24) return;
                 }
                 const [ax, ay] = pageXY(r.left, r.top);
+                const placed = [], pinCache = new Map(), groups = new Map();
                 ink[key].forEach(st => {
-                    const sc = inkScaleFor(a, r.width, st.aw);
+                    let ox = ax, oy = ay, sc;
+                    if (st.pin) { // pinned to a word: follow it, sized by the text
+                        const sig = JSON.stringify(st.pin);
+                        if (!pinCache.has(sig)) pinCache.set(sig, inkResolvePin(a, st.pin));
+                        const rp = pinCache.get(sig);
+                        if (!rp) return; // its word isn't showing
+                        ox = rp.x; oy = rp.y; sc = rp.sc;
+                    } else sc = inkScaleFor(a, r.width, st.aw);
+                    const dec = inkDec(st), sp = dec.p, bp = [];
+                    for (let j = 0; j < sp.length; j += 2) bp.push([ox + sp[j] * sc, oy + sp[j + 1] * sc]);
+                    const it = { st, dec, sc, bp };
+                    placed.push(it);
+                    if (st.pin && st.pin.in) { const sig = JSON.stringify(st.pin); (groups.get(sig) || groups.set(sig, []).get(sig)).push(it); }
+                });
+                // a pinned scribble that was inside its box stays inside it when the text re-wraps
+                const L = r.left + window.scrollX - 4, R = r.right + window.scrollX + 4;
+                groups.forEach(list => {
+                    let x1 = Infinity, x2 = -Infinity;
+                    list.forEach(it => it.bp.forEach(([x]) => { x1 = Math.min(x1, x); x2 = Math.max(x2, x); }));
+                    let dx = 0;
+                    if (x2 > R) dx = R - x2;
+                    if (x1 + dx < L) dx = L - x1;
+                    if (dx) list.forEach(it => it.bp.forEach(q => { q[0] += dx; }));
+                });
+                placed.forEach(({ st, dec, sc, bp }) => {
                     if (folded) { // closed box: show only ink that sits on its still-visible part
-                        const sp = inkDec(st).p; let maxY = -Infinity;
-                        for (let j = 1; j < sp.length; j += 2) maxY = Math.max(maxY, sp[j] * sc);
-                        if (maxY > r.height + 6) return;
+                        let maxY = -Infinity; bp.forEach(q => { maxY = Math.max(maxY, q[1]); });
+                        if (maxY - ay > r.height + 6) return;
                     }
                     const off = move && move.ids.has(st.id) ? [move.dx, move.dy] : [0, 0];
-                    const pts = [];
-                    const dec = inkDec(st), sp = dec.p;
-                    for (let j = 0; j < sp.length; j += 2) pts.push([ax + sp[j] * sc + off[0], ay + sp[j + 1] * sc + off[1]]);
-                    inkCache.push({ key, id: st.id, hl: !!st.hl, pts, w: (st.hl ? HL_W : PEN_W * 1.6) * sc });
+                    const pts = bp.map(([x, y]) => [x + off[0], y + off[1]]);
+                    inkCache.push({ key, id: st.id, hl: !!st.hl, pts, bp, sc, w: (st.hl ? HL_W : PEN_W * 1.6) * sc });
                     if (st.hl) hl += inkStrokeSvg(pts, null, st, sc, dec.sm); else pen += inkStrokeSvg(pts, dec.pr, st, sc, dec.sm);
+                });
+            });
+            // highlighted words: drawn on the words wherever they are now
+            thl.forEach(h => {
+                const a = root.querySelector(`[data-ink="${CSS.escape(h.k)}"]`);
+                if (!a || !a.offsetParent || inkInFoldedParent(a)) return;
+                const sl = inkFindSlot(a, h.s, h.t, h.x);
+                if (!sl) return;
+                let st = h.a;
+                if (sl.text.slice(h.a, h.b) !== h.x) { st = inkNearestIndex(sl.text, h.x, h.a); if (st < 0) return; } // text gone: nothing to mark
+                const rng = inkRange(sl.el, st, st + h.x.length);
+                if (!rng) return;
+                [...rng.getClientRects()].filter(q => q.width > 1 && q.height > 1).forEach(q => {
+                    const x = q.left + window.scrollX - 2, y = q.top + window.scrollY + 1, w = q.width + 4, hh = q.height - 2;
+                    hl += `<rect x="${f1(x)}" y="${f1(y)}" width="${f1(w)}" height="${f1(hh)}" rx="4" fill="${h.c}" stroke="none"/>`;
+                    const mid = y + hh / 2;
+                    inkCache.push({ key: h.k, id: h.id, hl: true, thl: true, pts: [[x, mid], [x + w, mid]], bp: [[x, mid], [x + w, mid]], sc: 1, w: hh });
                 });
             });
             // lasso selection frame
@@ -8739,27 +8780,234 @@
             return null;
         }
         // Re-attach strokes (given in page coordinates) to the box that holds them as a group.
+        /* ---- Ink that follows the words ----
+           Typed text re-wraps when the screen turns, on another device, or when you edit it. So:
+           - a scribble written on or next to typed text is pinned to the nearest word (the whole scribble
+             together) and moves with that word; it is sized by the text size, not the box width;
+           - the highlighter over typed text marks the words themselves (like a word processor).
+           Text is found by its line ("slot") inside its box and the word's position in that line, with the
+           line's and word's text kept as a backup so edits nearby don't lose the place. */
+        const INK_TEXT_SKIP = 'button, label, .drag-handle, input, textarea, select, [data-ink-ui], svg, i';
+        let inkSlotCache = new Map();
+        function inkSlotOf(node, stopAt) {
+            let el = node.parentElement;
+            while (el && el !== stopAt && getComputedStyle(el).display === 'inline') el = el.parentElement;
+            return el;
+        }
+        // the text lines inside a box, in order
+        function inkSlots(anchorEl) {
+            if (inkSlotCache.has(anchorEl)) return inkSlotCache.get(anchorEl);
+            const out = [], seen = new Set();
+            const tw = document.createTreeWalker(anchorEl, NodeFilter.SHOW_TEXT, { acceptNode: n => /\S/.test(n.nodeValue) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT });
+            for (let n = tw.nextNode(); n; n = tw.nextNode()) {
+                const par = n.parentElement;
+                if (!par || par.closest(INK_TEXT_SKIP) || !par.offsetParent) continue;
+                const slot = inkSlotOf(n, anchorEl);
+                if (!slot || seen.has(slot)) continue;
+                seen.add(slot); out.push({ el: slot, text: slot.textContent });
+            }
+            inkSlotCache.set(anchorEl, out);
+            return out;
+        }
+        // text node + offset for a character position in a line
+        function inkSlotPoint(el, off) {
+            const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+            let n, acc = 0, last = null;
+            while ((n = tw.nextNode())) { const L = n.nodeValue.length; if (off <= acc + L) return { node: n, off: off - acc }; acc += L; last = n; }
+            return last ? { node: last, off: last.nodeValue.length } : null;
+        }
+        function inkRange(el, a, b) {
+            const p1 = inkSlotPoint(el, a), p2 = inkSlotPoint(el, b);
+            if (!p1 || !p2) return null;
+            const r = document.createRange();
+            try { r.setStart(p1.node, p1.off); r.setEnd(p2.node, p2.off); } catch (e) { return null; }
+            return r;
+        }
+        function inkWordRect(el, off, len) {
+            const r = inkRange(el, off, off + Math.max(1, len));
+            const rs = r && [...r.getClientRects()].filter(q => q.width > 0 && q.height > 0);
+            return rs && rs.length ? rs[0] : null;
+        }
+        const inkInnerAnchor = (el) => el && el.closest('[data-ink]');
+        // find a line again after edits: same text first, then one containing the word, then the same position
+        function inkFindSlot(anchorEl, s, t, w) {
+            const slots = inkSlots(anchorEl);
+            if (!slots.length) return null;
+            const near = (list) => list.sort((x, y) => Math.abs(x.i - s) - Math.abs(y.i - s))[0];
+            const idx = slots.map((sl, i) => ({ sl, i }));
+            const same = idx.filter(o => o.sl.text.slice(0, 60) === t);
+            if (same.length) return near(same).sl;
+            if (w) { const has = idx.filter(o => o.sl.text.includes(w)); if (has.length) return near(has).sl; }
+            return slots[Math.min(s, slots.length - 1)];
+        }
+        // nearest copy of a piece of text in a line to a remembered position
+        function inkNearestIndex(text, piece, pos) {
+            if (!piece) return -1;
+            let best = -1, i = text.indexOf(piece);
+            while (i > -1) { if (best < 0 || Math.abs(i - pos) < Math.abs(best - pos)) best = i; i = text.indexOf(piece, i + 1); }
+            return best;
+        }
+        // the word a scribble belongs to (page-coordinate box of the scribble), or null if no typed text is close
+        function inkFindPin(anchorEl, box) {
+            const sx = window.scrollX, sy = window.scrollY;
+            const bx1 = box[0] - sx, by1 = box[1] - sy, bx2 = box[2] - sx, by2 = box[3] - sy;
+            const cx = (bx1 + bx2) / 2, cy = (by1 + by2) / 2;
+            const MAXGAP = 28;
+            let best = null;
+            inkSlots(anchorEl).forEach(sl => {
+                const er = sl.el.getBoundingClientRect();
+                if (er.right < bx1 - 80 || er.left > bx2 + 80 || er.bottom < by1 - 80 || er.top > by2 + 80) return;
+                const re = /\S+/g; let m;
+                while ((m = re.exec(sl.text))) {
+                    const wr = inkWordRect(sl.el, m.index, m[0].length);
+                    if (!wr) continue;
+                    const gap = Math.hypot(Math.max(wr.left - bx2, 0, bx1 - wr.right), Math.max(wr.top - by2, 0, by1 - wr.bottom));
+                    if (gap > MAXGAP) continue;
+                    // sideways gap to the scribble + how far the word's line is from the scribble's middle (same line wins)
+                    const gx = Math.max(wr.left - bx2, 0, bx1 - wr.right), dy = Math.max(wr.top - cy, 0, cy - wr.bottom);
+                    const score = gx + dy * 6;
+                    if (!best || score < best.score) best = { score, el: sl.el, off: m.index, word: m[0], rect: wr };
+                }
+            });
+            return best;
+        }
+        // where a pinned scribble goes now: { x, y (page), sc } - or null if its word isn't on screen
+        function inkResolvePin(anchorEl, pin) {
+            const sl = inkFindSlot(anchorEl, pin.s, pin.t, pin.w);
+            if (!sl) return null;
+            let o = pin.o;
+            if (sl.text.substr(o, pin.w.length) !== pin.w) { const j = inkNearestIndex(sl.text, pin.w, o); o = j > -1 ? j : Math.min(o, Math.max(0, sl.text.length - 1)); }
+            const wr = inkWordRect(sl.el, o, pin.w.length);
+            if (!wr) return null;
+            const sc = Math.max(0.5, Math.min(2, pin.lh ? wr.height / pin.lh : 1));
+            return { x: wr.left + window.scrollX, y: wr.top + window.scrollY, sc };
+        }
+        // a short glow on the word a scribble just attached to
+        function inkFlashWord(rect) {
+            const g = document.createElement('div');
+            g.setAttribute('data-ink-ui', '');
+            g.style.cssText = `position:absolute;left:${rect.left + window.scrollX - 3}px;top:${rect.top + window.scrollY - 2}px;width:${rect.width + 6}px;height:${rect.height + 4}px;border-radius:6px;box-shadow:0 0 0 2px rgba(122,4,16,.55),0 0 10px rgba(122,4,16,.35);pointer-events:none;z-index:25;transition:opacity .6s`;
+            document.body.appendChild(g);
+            setTimeout(() => { g.style.opacity = '0'; }, 700);
+            setTimeout(() => g.remove(), 1400);
+        }
+        // Highlighter over typed text -> mark those words. Returns true when it did.
+        function inkCaretAt(x, y) {
+            if (document.caretPositionFromPoint) { const c = document.caretPositionFromPoint(x, y); return c && { node: c.offsetNode, off: c.offset }; }
+            if (document.caretRangeFromPoint) { const r = document.caretRangeFromPoint(x, y); return r && { node: r.startContainer, off: r.startOffset }; }
+            return null;
+        }
+        function inkTextHighlight(root, d) {
+            const sx = window.scrollX, sy = window.scrollY;
+            const samples = [];
+            for (let i = 0; i < d.pts.length; i++) {
+                const [x, y] = d.pts[i];
+                if (!samples.length || Math.hypot(x - samples[samples.length - 1][0], y - samples[samples.length - 1][1]) >= 3) samples.push([x, y]);
+            }
+            const hits = [];
+            samples.forEach(([px, py]) => {
+                const x = px - sx, y = py - sy;
+                const c = inkCaretAt(x, y);
+                if (!c || !c.node || c.node.nodeType !== 3 || !root.contains(c.node)) return;
+                const par = c.node.parentElement;
+                if (!par || par.closest(INK_TEXT_SKIP + ', ' + TYPING_SEL)) return;
+                const L = c.node.nodeValue.length;
+                // is the pen really over a letter (not just beside the line)?
+                for (const o of [c.off, c.off - 1]) {
+                    if (o < 0 || o >= L || /\s/.test(c.node.nodeValue[o])) continue;
+                    const r = document.createRange(); r.setStart(c.node, o); r.setEnd(c.node, o + 1);
+                    const q = r.getBoundingClientRect();
+                    if (y >= q.top - 4 && y <= q.bottom + 4 && x >= q.left - 6 && x <= q.right + 6) { hits.push({ node: c.node, off: o }); break; }
+                }
+            });
+            if (hits.length < 2 || hits.length < samples.length * 0.3) return false;
+            const bySlot = new Map();
+            hits.forEach(h => {
+                const anchorEl = inkInnerAnchor(h.node.parentElement);
+                if (!anchorEl || anchorEl === root) return;
+                const slot = inkSlotOf(h.node, anchorEl);
+                if (!slot) return;
+                // character position within the line
+                const tw = document.createTreeWalker(slot, NodeFilter.SHOW_TEXT); let n, acc = 0;
+                while ((n = tw.nextNode()) && n !== h.node) acc += n.nodeValue.length;
+                const g = bySlot.get(slot) || { anchorEl, lo: Infinity, hi: -Infinity };
+                g.lo = Math.min(g.lo, acc + h.off); g.hi = Math.max(g.hi, acc + h.off);
+                bySlot.set(slot, g);
+            });
+            if (!bySlot.size) return false;
+            const all = inkAll(), note = inkNote(all);
+            if (!note) return false;
+            const entry = inkEntry();
+            bySlot.forEach((g, slot) => {
+                const text = slot.textContent;
+                let a = g.lo, b = g.hi + 1;
+                while (a > 0 && !/\s/.test(text[a - 1])) a--;
+                while (b < text.length && !/\s/.test(text[b])) b++;
+                const slots = inkSlots(g.anchorEl), si = slots.findIndex(x => x.el === slot);
+                const id = 'h' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+                (note.thl = note.thl || []).push({ id, c: d.st.c, k: g.anchorEl.getAttribute('data-ink'), s: Math.max(0, si), t: text.slice(0, 60), a, b, x: text.slice(a, b) });
+                inkUndo.push({ entry, id });
+            });
+            inkSaveAll(all);
+            return true;
+        }
+        // remove one stroke or text highlight by id
+        function inkRemoveId(note, id) {
+            if (!note) return false;
+            const f = inkFind(note, id);
+            if (f) { note.ink[f.k].splice(f.i, 1); if (!note.ink[f.k].length) delete note.ink[f.k]; return true; }
+            if (note.thl) { const i = note.thl.findIndex(h => h.id === id); if (i > -1) { note.thl.splice(i, 1); if (!note.thl.length) delete note.thl; return true; } }
+            return false;
+        }
         function inkReanchor(root, note, items /* [{ st, abs }] */) {
             const allPts = []; items.forEach(it => allPts.push(...it.abs));
             let b = [Infinity, Infinity, -Infinity, -Infinity];
             allPts.forEach(([x, y]) => { b = [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)]; });
-            const a = inkPickAnchor(root, [[b[0], b[1]], [b[2], b[3]]]);
+            let a = inkPickAnchor(root, [[b[0], b[1]], [b[2], b[3]]]);
+            // on or beside typed text? pin the whole scribble to the nearest word
+            let pin = null, pinRect = null;
+            const ak = a === root ? 'page' : a.getAttribute('data-ink');
+            if (a !== root && !/^(foot|side:|pad:)/.test(ak)) {
+                const w = inkFindPin(a, b);
+                const inner = w && inkInnerAnchor(w.el);
+                if (w && inner && inner !== root && !inner.hasAttribute('data-ink-pad')) {
+                    a = inner;
+                    const ar = a.getBoundingClientRect();
+                    const si = inkSlots(a).findIndex(x => x.el === w.el);
+                    const sl = inkSlots(a)[Math.max(0, si)];
+                    pin = { s: Math.max(0, si), t: sl.text.slice(0, 60), w: w.word, o: w.off, lh: Math.round(w.rect.height * 10) / 10,
+                            ax: Math.round(w.rect.left - ar.left), ay: Math.round(w.rect.top - ar.top),
+                            in: (b[0] - window.scrollX >= ar.left - 4 && b[2] - window.scrollX <= ar.right + 4) ? 1 : 0 };
+                    pinRect = w.rect;
+                }
+            }
             const key = a === root ? 'page' : a.getAttribute('data-ink');
             const r = a.getBoundingClientRect();
-            const [ax, ay] = pageXY(r.left, r.top);
+            const [ax, ay] = pin ? pageXY(pinRect.left, pinRect.top) : pageXY(r.left, r.top);
             items.forEach(({ st, abs, sc }) => {
                 const f = inkFind(note, st.id);
                 if (f) { note.ink[f.k].splice(f.i, 1); if (!note.ink[f.k].length) delete note.ink[f.k]; }
                 let pts = abs, prs = st.hl ? null : (st.z ? inkDecode(st.z).pr : (st.pr || abs.map(() => 0.5)));
                 if (!st.z && !st.fresh) { const pp = inkPrepare(pts, prs, st.hl); pts = pp.pts; prs = pp.prs; } // older stroke: store it the lean way
+                // a pinned scribble's size follows the text size: store it at the text's own scale
                 const flat = []; pts.forEach(([x, y]) => flat.push(x - ax, y - ay));
-                const { p, pr, z, fresh, ...rest } = st;
-                (note.ink[key] = note.ink[key] || []).push({ ...rest, aw: Math.round(r.width * 10) / 10, z: inkEncode(flat, prs) });
+                const { p, pr, z, fresh, pin: oldPin, ...rest } = st;
+                const out = { ...rest, aw: Math.round(r.width * 10) / 10, z: inkEncode(flat, prs) };
+                if (pin) out.pin = pin;
+                (note.ink[key] = note.ink[key] || []).push(out);
             });
+            inkLastPinRect = pinRect;
             return key;
         }
+        let inkLastPinRect = null;
         function inkAbs(root, note, id) {
             const f = inkFind(note, id); if (!f) return null;
+            const shown = inkCache.find(c => c.id === id && !c.thl);
+            if (shown) return { st: f.st, abs: shown.bp.map(q => q.slice()), sc: shown.sc || 1 };
+            if (f.st.pin) {
+                const pa = root.querySelector(`[data-ink="${CSS.escape(f.k)}"]`), rp = pa && inkResolvePin(pa, f.st.pin);
+                if (rp) { const sp = inkDec(f.st).p, abs = []; for (let j = 0; j < sp.length; j += 2) abs.push([rp.x + sp[j] * rp.sc, rp.y + sp[j + 1] * rp.sc]); return { st: f.st, abs, sc: rp.sc }; }
+            }
             const pos = inkAnchorPos(root, f.k); if (!pos) return null;
             const sc = inkScaleFor(pos.a, pos.w, f.st.aw);
             const sp = inkDec(f.st).p;
@@ -8793,7 +9041,12 @@
             const items = inkGroup.ids.map(gid => inkAbs(root, note, gid)).filter(Boolean);
             (note.ink.page = note.ink.page || []).push(stroke); // placeholder, re-anchored just below
             items.push({ st: stroke, abs: prep.pts });
+            inkLastPinRect = null;
             inkReanchor(root, note, items);
+            if (inkLastPinRect) {
+                const sig = Math.round(inkLastPinRect.left) + ',' + Math.round(inkLastPinRect.top);
+                if (inkGroup.pinSig !== sig) { inkGroup.pinSig = sig; inkFlashWord(inkLastPinRect); }
+            }
             inkGroup.ids.push(id);
             inkSaveAll(all);
             inkUndo.push({ entry, id });
@@ -8809,8 +9062,8 @@
             if (!hit.length) return;
             const all = inkAll();
             const note = inkNote(all);
-            if (!note || !note.ink) return;
-            hit.forEach(h => { const f = inkFind(note, h.id); if (f) { note.ink[f.k].splice(f.i, 1); if (!note.ink[f.k].length) delete note.ink[f.k]; } });
+            if (!note) return;
+            hit.forEach(h => inkRemoveId(note, h.id));
             inkSaveAll(all);
             inkLayout();
         }
@@ -8822,10 +9075,7 @@
                 inkUndo.splice(i, 1);
                 const all = inkAll();
                 const note = inkNote(all);
-                const f = note && inkFind(note, u.id);
-                if (!f) continue; // already erased: undo the one before
-                note.ink[f.k].splice(f.i, 1);
-                if (!note.ink[f.k].length) delete note.ink[f.k];
+                if (!inkRemoveId(note, u.id)) continue; // already erased: undo the one before
                 inkSaveAll(all);
                 inkLayout();
                 return;
@@ -8836,7 +9086,7 @@
             if (!inkSel) return;
             const all = inkAll();
             const note = inkNote(all);
-            inkSel.ids.forEach(id => { const f = note && inkFind(note, id); if (f) { note.ink[f.k].splice(f.i, 1); if (!note.ink[f.k].length) delete note.ink[f.k]; } });
+            inkSel.ids.forEach(id => inkRemoveId(note, id));
             inkSaveAll(all);
             inkSel = null;
             inkLayout();
@@ -8847,7 +9097,7 @@
             inkClearArmed = false;
             const all = inkAll();
             const note = inkNote(all);
-            if (note && note.ink) { delete note.ink; inkSaveAll(all); }
+            if (note && (note.ink || note.thl)) { delete note.ink; delete note.thl; inkSaveAll(all); }
             inkSel = null;
             inkLayout(); inkToolbarRender();
         }
@@ -9054,10 +9304,10 @@
             }
             if (d.started) {
                 stopNextClick(); // a drawn stroke must not also click what it ended on
-                if (d.kind === 'pen' && d.pts.length) inkSave(d.root, d);
+                if (d.kind === 'pen' && d.pts.length && !(d.st.hl && inkTextHighlight(d.root, d))) inkSave(d.root, d);
                 if (d.kind === 'lasso' && d.pts.length > 2) {
                     const poly = d.pts;
-                    const ids = inkCache.filter(c => c.pts.filter(pt => inside(pt, poly)).length >= Math.max(1, c.pts.length * 0.5)).map(c => c.id);
+                    const ids = inkCache.filter(c => !c.thl).filter(c => c.pts.filter(pt => inside(pt, poly)).length >= Math.max(1, c.pts.length * 0.5)).map(c => c.id);
                     inkSel = ids.length ? { entry: inkEntry(), ids } : null;
                     if (!ids.length) showToast('Nothing selected - circle some ink');
                 }
