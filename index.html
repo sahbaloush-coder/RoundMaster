@@ -1182,7 +1182,7 @@
             watchInvCards();
             fitListBar(); requestAnimationFrame(fitListBar); setTimeout(fitListBar, 300);
             fitBoxHeaders(); requestAnimationFrame(fitBoxHeaders); setTimeout(fitBoxHeaders, 300);
-            try { inkAnnotate(); inkLayoutSoon(); if (!inkRoot()) { const b = document.getElementById('ink-toolbar'); if (b) b.remove(); } else inkToolbarRender(); } catch (e) { console.error(e); }
+            try { inkAnnotate(); inkLayoutSoon(); if (!inkRoot()) { ['ink-toolbar', 'ink-fab'].forEach(id => { const b = document.getElementById(id); if (b) b.remove(); }); inkExpanded = false; inkPinned = false; } else inkToolbarRender(); } catch (e) { console.error(e); }
             document.querySelectorAll('.inv-board img').forEach(img => { if (!img.complete) img.addEventListener('load', layoutInvestigations, { once: true }); });
             main.style.minHeight = '';
             if (Math.abs(window.scrollY - keepY) > 1) window.scrollTo(0, keepY);
@@ -2176,7 +2176,7 @@
                         </div>
                     </div>
                     <!-- bottom of the list: ink written here stays below the cards, however they open or close -->
-                    <div data-ink="foot" class="flex-1" style="min-height: 72px; margin-top: 0"></div>
+                    <div data-ink="foot" class="flex-1" style="min-height: 75vh; margin-top: 0"></div>
                 </div>
             `;
         }
@@ -2640,7 +2640,7 @@
                             </button>
                         </div>
                         <!-- bottom of the record: ink written here stays at the bottom, however the boxes above open or close -->
-                        <div data-ink="foot" class="flex-1" style="min-height: 72px; margin-top: 0"></div>
+                        <div data-ink="foot" class="flex-1" style="min-height: 75vh; margin-top: 0"></div>
                     </div>
                 </div>
             `;
@@ -8327,10 +8327,12 @@
         let inkMenu = null;            // open colour list under the pen / highlighter button
         let inkDraw = null;            // the stroke / lasso / move in progress
         let inkUndo = [];              // [{ entry, id }]
+        let inkRedo = [];              // [{ entry, kind: 'ink'|'thl', key, item }] - what Undo took away
+        let inkPinned = false;         // toolbar opened with the floating pen button: stays until closed there
         let inkCache = [];             // rendered strokes in page coordinates (eraser, lasso)
         let inkSel = null;             // lasso selection { entry, ids: [], box: [x1,y1,x2,y2] }
         let inkHideTimer = null, inkExpanded = false;
-        const INK_HIDE_MS = 3000;
+        const INK_HIDE_MS = 8000;
         const inkIsList = () => currentRoute === 'inpatient' || currentRoute === 'consult';
         function inkRoot() { return currentRoute === 'patient_file' || inkIsList() ? document.querySelector('#main-view > [data-ink="page"]') : null; }
         // Where ink lives: a patient's day note, or (on the Inpatient / Consult list) the list for that day
@@ -8590,7 +8592,7 @@
             const root = inkRoot();
             inkCache = [];
             const ov = inkOverlay(false);
-            if (!root) { if (ov) ov.remove(); const hlL = inkHlLayer(false); if (hlL) hlL.remove(); inkSel = null; return; }
+            if (!root) { if (ov) ov.remove(); const hlL = inkHlLayer(false); if (hlL) hlL.remove(); inkSel = null; const del = document.getElementById('ink-sel-del'); if (del) del.remove(); return; }
             const note = inkNote();
             const ink = (note && note.ink) || {};
             // every stroke gets an id (older strokes didn't have one)
@@ -8605,7 +8607,7 @@
             const keys = Object.keys(ink).filter(k => (ink[k] || []).length);
             const thl = (note && note.thl) || [];
             inkSlotCache = new Map();
-            if (!keys.length && !thl.length && !inkDraw && !inkSel) { if (ov) ov.querySelector('.ink-saved').innerHTML = ''; const hlL = inkHlLayer(false); if (hlL) hlL.querySelector('.ink-saved').innerHTML = ''; return; }
+            if (!keys.length && !thl.length && !inkDraw && !inkSel) { if (ov) ov.querySelector('.ink-saved').innerHTML = ''; const hlL = inkHlLayer(false); if (hlL) hlL.querySelector('.ink-saved').innerHTML = ''; inkSelControls(); return; }
             root.querySelectorAll('[data-ink-alt]').forEach(el => { el.style.height = '0'; });
             const svg = inkOverlay(true).querySelector('.ink-saved');
             let hl = '', pen = '';
@@ -8787,7 +8789,7 @@
            - the highlighter over typed text marks the words themselves (like a word processor).
            Text is found by its line ("slot") inside its box and the word's position in that line, with the
            line's and word's text kept as a backup so edits nearby don't lose the place. */
-        const INK_TEXT_SKIP = 'button, label, .drag-handle, input, textarea, select, [data-ink-ui], svg, i';
+        const INK_TEXT_SKIP = 'button:not([onclick*="toggle"]), label, .drag-handle, input, textarea, select, [data-ink-ui], svg, i';
         let inkSlotCache = new Map();
         function inkSlotOf(node, stopAt) {
             let el = node.parentElement;
@@ -8853,19 +8855,25 @@
             const bx1 = box[0] - sx, by1 = box[1] - sy, bx2 = box[2] - sx, by2 = box[3] - sy;
             const cx = (bx1 + bx2) / 2, cy = (by1 + by2) / 2;
             const MAXGAP = 28;
+            // Small scribble (a circle, tick, underline, a short word): its centre goes to the nearest word's centre.
+            // Big scribble (a sentence or several lines): its beginning (top-left) goes to the nearest word.
+            const big = (bx2 - bx1) > 160 || (by2 - by1) > 48;
+            const px = bx1, py = by1 + Math.min(12, (by2 - by1) / 2);
             let best = null;
             inkSlots(anchorEl).forEach(sl => {
                 const er = sl.el.getBoundingClientRect();
                 if (er.right < bx1 - 80 || er.left > bx2 + 80 || er.bottom < by1 - 80 || er.top > by2 + 80) return;
                 const re = /\S+/g; let m;
                 while ((m = re.exec(sl.text))) {
+                    if (!/[A-Za-z0-9]/.test(m[0]) || /^\(\d+\)$/.test(m[0])) continue; // not a word: "(4)", "•", "┃"…
                     const wr = inkWordRect(sl.el, m.index, m[0].length);
                     if (!wr) continue;
                     const gap = Math.hypot(Math.max(wr.left - bx2, 0, bx1 - wr.right), Math.max(wr.top - by2, 0, by1 - wr.bottom));
                     if (gap > MAXGAP) continue;
-                    // sideways gap to the scribble + how far the word's line is from the scribble's middle (same line wins)
-                    const gx = Math.max(wr.left - bx2, 0, bx1 - wr.right), dy = Math.max(wr.top - cy, 0, cy - wr.bottom);
-                    const score = gx + dy * 6;
+                    // being on the same line counts most (vertical distance weighs 6x)
+                    const dx = big ? Math.max(wr.left - px, 0, px - wr.right) : Math.abs(cx - (wr.left + wr.right) / 2);
+                    const dy = big ? Math.max(wr.top - py, 0, py - wr.bottom) : Math.abs(cy - (wr.top + wr.bottom) / 2);
+                    const score = dx + dy * 6;
                     if (!best || score < best.score) best = { score, el: sl.el, off: m.index, word: m[0], rect: wr };
                 }
             });
@@ -8948,16 +8956,17 @@
                 (note.thl = note.thl || []).push({ id, c: d.st.c, k: g.anchorEl.getAttribute('data-ink'), s: Math.max(0, si), t: text.slice(0, 60), a, b, x: text.slice(a, b) });
                 inkUndo.push({ entry, id });
             });
+            inkClearRedo();
             inkSaveAll(all);
             return true;
         }
         // remove one stroke or text highlight by id
         function inkRemoveId(note, id) {
-            if (!note) return false;
+            if (!note) return null;
             const f = inkFind(note, id);
-            if (f) { note.ink[f.k].splice(f.i, 1); if (!note.ink[f.k].length) delete note.ink[f.k]; return true; }
-            if (note.thl) { const i = note.thl.findIndex(h => h.id === id); if (i > -1) { note.thl.splice(i, 1); if (!note.thl.length) delete note.thl; return true; } }
-            return false;
+            if (f) { const item = note.ink[f.k].splice(f.i, 1)[0]; if (!note.ink[f.k].length) delete note.ink[f.k]; return { kind: 'ink', key: f.k, item }; }
+            if (note.thl) { const i = note.thl.findIndex(h => h.id === id); if (i > -1) { const item = note.thl.splice(i, 1)[0]; if (!note.thl.length) delete note.thl; return { kind: 'thl', key: null, item }; } }
+            return null;
         }
         function inkReanchor(root, note, items /* [{ st, abs }] */) {
             const allPts = []; items.forEach(it => allPts.push(...it.abs));
@@ -9050,6 +9059,7 @@
             inkGroup.ids.push(id);
             inkSaveAll(all);
             inkUndo.push({ entry, id });
+            inkClearRedo();
         }
         function inkEraseAt(x, y) {
             const hit = inkCache.filter(c => c.pts.some((pt, j) => {
@@ -9075,13 +9085,35 @@
                 inkUndo.splice(i, 1);
                 const all = inkAll();
                 const note = inkNote(all);
-                if (!inkRemoveId(note, u.id)) continue; // already erased: undo the one before
+                const gone = inkRemoveId(note, u.id);
+                if (!gone) continue; // already erased: undo the one before
+                inkRedo.push({ entry, ...gone });
+                inkSaveAll(all);
+                inkLayout();
+                return true;
+            }
+            showToast('Nothing to undo');
+            return false;
+        }
+        // Redo: put back what Undo took away (new writing clears the redo list)
+        function inkRedoLast() {
+            const entry = inkEntry();
+            for (let i = inkRedo.length - 1; i >= 0; i--) {
+                const r = inkRedo[i];
+                if (r.entry !== entry) continue;
+                inkRedo.splice(i, 1);
+                const all = inkAll(), note = inkNote(all);
+                if (!note) return;
+                if (r.kind === 'ink') (note.ink = note.ink || {}, note.ink[r.key] = note.ink[r.key] || []).push(r.item);
+                else (note.thl = note.thl || []).push(r.item);
+                inkUndo.push({ entry, id: r.item.id });
                 inkSaveAll(all);
                 inkLayout();
                 return;
             }
-            showToast('Nothing to undo');
+            showToast('Nothing to redo');
         }
+        const inkClearRedo = () => { const e = inkEntry(); inkRedo = inkRedo.filter(r => r.entry !== e); };
         function inkDeleteSelection() {
             if (!inkSel) return;
             const all = inkAll();
@@ -9089,6 +9121,7 @@
             inkSel.ids.forEach(id => inkRemoveId(note, id));
             inkSaveAll(all);
             inkSel = null;
+            const del = document.getElementById('ink-sel-del'); if (del) del.remove(); // the delete button goes with the ink
             inkLayout();
         }
         let inkClearArmed = false;
@@ -9104,9 +9137,74 @@
         /* ---- Toolbar (top centre) ----
            Appears when the pen comes close to the screen (hover) or touches it, so a colour can be picked
            before writing; it goes away 3 seconds after the pen leaves. Buttons react the moment the pen (or a finger) touches them. */
+        /* ---- Floating pen button ----
+           A small round pen button that floats over the page (drag it anywhere; it remembers where). Tap it to
+           open the tools and keep them open; tap again to put them away. For pens that can't hover. */
+        function inkFabAllowed() {
+            const ipad = /iPad/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            let seen = false; try { seen = localStorage.getItem('roundmaster_pen_seen') === '1'; } catch (e) {}
+            return ipad || seen;
+        }
+        function inkFabPos() {
+            let p = null; try { p = JSON.parse(localStorage.getItem('roundmaster_pen_fab') || 'null'); } catch (e) {}
+            const W = window.innerWidth, H = window.innerHeight, S = 46;
+            const x = p ? p.x * W : W - S - 18, y = p ? p.y * H : H - S - 90;
+            return [Math.max(6, Math.min(W - S - 6, x)), Math.max(6, Math.min(H - S - 6, y))];
+        }
+        function inkFabRender() {
+            let fab = document.getElementById('ink-fab');
+            if (!inkRoot() || !inkFabAllowed()) { if (fab) fab.remove(); return; }
+            if (!fab) {
+                fab = document.createElement('button');
+                fab.id = 'ink-fab';
+                fab.setAttribute('data-ink-ui', '');
+                fab.title = 'Pen tools (drag to move)';
+                fab.style.cssText = 'position:fixed;z-index:9998;width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,23,42,.28);border:1px solid rgba(0,0,0,.08);touch-action:none;user-select:none;-webkit-user-select:none;transition:background .15s,color .15s';
+                let drag = null;
+                fab.addEventListener('pointerdown', (e) => {
+                    e.preventDefault(); e.stopPropagation();
+                    const r = fab.getBoundingClientRect();
+                    drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top, moved: false };
+                    try { fab.setPointerCapture(e.pointerId); } catch (err) {}
+                });
+                fab.addEventListener('pointermove', (e) => {
+                    if (!drag || e.pointerId !== drag.id) return;
+                    e.preventDefault(); e.stopPropagation();
+                    const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+                    if (!drag.moved && Math.hypot(dx, dy) < 6) return;
+                    drag.moved = true;
+                    const W = window.innerWidth, H = window.innerHeight;
+                    fab.style.left = Math.max(6, Math.min(W - 52, drag.ox + dx)) + 'px';
+                    fab.style.top = Math.max(6, Math.min(H - 52, drag.oy + dy)) + 'px';
+                });
+                const up = (e) => {
+                    if (!drag || e.pointerId !== drag.id) return;
+                    e.preventDefault(); e.stopPropagation();
+                    if (drag.moved) {
+                        const r = fab.getBoundingClientRect();
+                        try { localStorage.setItem('roundmaster_pen_fab', JSON.stringify({ x: r.left / window.innerWidth, y: r.top / window.innerHeight })); } catch (err) {}
+                    } else if (e.type === 'pointerup') {
+                        if (inkExpanded) { inkPinned = false; clearTimeout(inkHideTimer); inkExpanded = false; inkMenu = null; inkEraserCursor(0, 0, false); }
+                        else { inkPinned = true; inkExpanded = true; }
+                        inkToolbarRender();
+                    }
+                    drag = null;
+                };
+                fab.addEventListener('pointerup', up);
+                fab.addEventListener('pointercancel', up);
+                fab.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
+                document.body.appendChild(fab);
+                const [x, y] = inkFabPos(); fab.style.left = x + 'px'; fab.style.top = y + 'px';
+            }
+            const on = inkExpanded;
+            fab.style.background = on ? '#7a0410' : 'rgba(255,255,255,.96)';
+            fab.style.color = on ? '#fff' : '#7a0410';
+            fab.innerHTML = `<i class="fa-solid ${on ? 'fa-xmark' : 'fa-pen'}" style="font-size:17px;pointer-events:none"></i>`;
+        }
         function inkToolbarRender() {
+            inkFabRender();
             let bar = document.getElementById('ink-toolbar');
-            if (!inkRoot() || !inkExpanded) { if (bar) bar.remove(); return null; }
+            if (!inkRoot() || !inkExpanded) { inkPinned = false; if (bar) bar.remove(); return null; }
             if (!bar) {
                 bar = document.createElement('div');
                 bar.id = 'ink-toolbar';
@@ -9120,6 +9218,7 @@
                     if (!b) return;
                     const act = b.getAttribute('data-act');
                     if (act === 'undo') inkUndoLast();
+                    else if (act === 'redo') inkRedoLast();
                     else if (act === 'clear') inkClearAll();
                     else if (act === 'eraser') (inkMenu = null, inkSet({ mode: inkTool.mode === 'eraser' ? 'pen' : 'eraser' }));
                     else if (act === 'lasso') { inkSel = null; inkMenu = null; inkSet({ mode: inkTool.mode === 'lasso' ? 'pen' : 'lasso' }); inkLayout(); }
@@ -9154,6 +9253,7 @@
                 + btn('eraser', 'fa-eraser', 'Eraser', t.mode === 'eraser')
                 + btn('lasso', 'fa-draw-polygon', 'Lasso: circle ink to select it, then drag it', t.mode === 'lasso')
                 + btn('undo', 'fa-rotate-left', 'Undo', false)
+                + btn('redo', 'fa-rotate-right', 'Redo', false)
                 + btn('clear', 'fa-trash', 'Clear all ink on this entry', inkClearArmed);
             return bar;
         }
@@ -9164,6 +9264,7 @@
             if (!bar) return;
             clearTimeout(inkHideTimer);
             inkHideTimer = setTimeout(() => {
+                if (inkPinned) return;
                 if (inkDraw || inkSel || (bar.isConnected && bar.matches(':hover'))) return inkShowToolbar();
                 inkExpanded = false; inkMenu = null; inkToolbarRender();
             }, INK_HIDE_MS);
@@ -9213,6 +9314,14 @@
         }
         const inside = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
         document.addEventListener('pointerdown', (e) => {
+            const onBar = e.target && e.target.closest && e.target.closest('#ink-toolbar, #ink-sel-del, #ink-fab');
+            if (e.pointerType === 'touch' && !onBar && inkExpanded && !inkPinned) { // finger tap: tools away
+                clearTimeout(inkHideTimer); inkExpanded = false; inkMenu = null; inkToolbarRender(); inkEraserCursor(0, 0, false);
+            }
+            if (e.pointerType === 'pen' && !onBar && inkRoot()) {
+                try { if (localStorage.getItem('roundmaster_pen_seen') !== '1') localStorage.setItem('roundmaster_pen_seen', '1'); } catch (err) {}
+                inkExpand();
+            }
             const root = inkStartable(e);
             if (!root) return;
             const p0 = pageXY(e.clientX, e.clientY);
@@ -9230,6 +9339,7 @@
             if (kind === 'pen' && inkNoInkZone(e.target)) {
                 // taps still work normally here (buttons, date…); only writing is refused
                 inkDraw = { kind: 'blocked', root, id: e.pointerId, start: [e.clientX, e.clientY], started: false };
+                inkExpand(); // the pen touched the screen: show the tools anyway
                 return;
             }
             inkDraw = { kind, root, id: e.pointerId, start: [e.clientX, e.clientY], started: false, pts: [p0], prs: [e.pressure || 0.5],
@@ -9333,6 +9443,25 @@
         }, { passive: false });
         document.addEventListener('selectstart', (e) => { if (inkDraw && inkDraw.started) e.preventDefault(); }, true);
         window.addEventListener('resize', inkLayoutSoon);
+        window.addEventListener('resize', () => { const f = document.getElementById('ink-fab'); if (f) { const [x, y] = inkFabPos(); f.style.left = x + 'px'; f.style.top = y + 'px'; } });
+        // Two-finger tap = Undo (on pages with ink)
+        (() => {
+            let t2 = null;
+            document.addEventListener('touchstart', (e) => {
+                if (!inkRoot()) { t2 = null; return; }
+                if (e.touches.length === 2) t2 = { t: Date.now(), pts: [...e.touches].map(q => [q.clientX, q.clientY]), moved: false, ok: true };
+                else if (e.touches.length > 2) t2 = null;
+            }, { passive: true });
+            document.addEventListener('touchmove', (e) => {
+                if (!t2) return;
+                [...e.touches].forEach((q, i) => { const p0 = t2.pts[i]; if (p0 && Math.hypot(q.clientX - p0[0], q.clientY - p0[1]) > 12) t2.moved = true; });
+            }, { passive: true });
+            document.addEventListener('touchend', (e) => {
+                if (!t2 || e.touches.length) return;
+                const g = t2; t2 = null;
+                if (!g.moved && Date.now() - g.t < 350 && inkUndoLast()) showToast('Undone');
+            }, { passive: true });
+        })();
         window.addEventListener('resize', () => requestAnimationFrame(() => { fitListBar(); fitBoxHeaders(); }));
         try { new ResizeObserver(() => inkLayoutSoon()).observe(document.getElementById('main-view')); } catch (e) {}
 
