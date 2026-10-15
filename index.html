@@ -69,6 +69,8 @@
         .issues-plan-grid.ipg-stretch { align-items: stretch; }
         .ink-pad { flex: 1 1 0; min-height: 0; }
         .list-bar.lt-icons button > span.hidden { display: none !important; }
+        /* box headers: when the buttons don't fit beside the title, they show just their icons */
+        [data-fit].fit-icons .fit-label { display: none; }
         /* folded Medical Background: as tall as the memo buttons beside it */
         .mb-row.mb-fold { align-items: stretch; }
         .mb-row.mb-fold > .flex-1 { display: flex; }
@@ -1179,6 +1181,7 @@
             layoutInvestigations();
             watchInvCards();
             fitListBar(); requestAnimationFrame(fitListBar); setTimeout(fitListBar, 300);
+            fitBoxHeaders(); requestAnimationFrame(fitBoxHeaders); setTimeout(fitBoxHeaders, 300);
             try { inkAnnotate(); inkLayoutSoon(); if (!inkRoot()) { const b = document.getElementById('ink-toolbar'); if (b) b.remove(); } else inkToolbarRender(); } catch (e) { console.error(e); }
             document.querySelectorAll('.inv-board img').forEach(img => { if (!img.complete) img.addEventListener('load', layoutInvestigations, { once: true }); });
             main.style.minHeight = '';
@@ -2064,6 +2067,12 @@
             const [a, b] = bar.children;
             if (b.offsetTop > a.offsetTop + 4) bar.classList.add('lt-icons');
         }
+        function fitBoxHeaders() {
+            document.querySelectorAll('#main-view [data-fit]').forEach(h => {
+                h.classList.remove('fit-icons');
+                if (h.offsetParent && h.scrollWidth > h.clientWidth + 1) h.classList.add('fit-icons');
+            });
+        }
         function renderInpatientView() { return renderListView('inpatient'); }
         function renderConsultView() { return renderListView('consult'); }
 
@@ -2318,11 +2327,16 @@
                                 </div>` : '') : `
                             <div class="grid grid-cols-1 md:grid-cols-12 gap-2 items-start">
                                 <div class="md:col-span-8 bg-white/60 p-2.5 rounded-xl border border-slate-200/70 text-xs space-y-1">
+                                    ${isConsult ? `
+                                        <span class="font-bold text-slate-500 block uppercase tracking-wider text-[calc(10px*var(--ts,1))]">Impression</span>
+                                        ${!note ? '<p class="text-slate-400 italic">No notes for this day yet</p>'
+                                            : String(note.impression || '').trim() ? `<div class="font-semibold text-slate-800 bg-white px-2 py-1.5 rounded-lg border border-slate-200/80 whitespace-pre-line break-words">${esc(String(note.impression).trim())}</div>`
+                                            : '<p class="text-slate-400 italic">No impression yet</p>'}` : `
                                     <span class="font-bold text-slate-500 block uppercase tracking-wider text-[calc(10px*var(--ts,1))]">${cfg.issuesLabel}</span>
                                     ${!note ? '<p class="text-slate-400 italic">No notes for this day yet</p>' : (todayIssues.length === 0 ? `<p class="text-slate-400 italic">${cfg.issuesEmpty}</p>` : '')}
                                     ${todayIssues.map(ai => `
                                         <div class="font-semibold text-slate-800 bg-white px-2 py-1 rounded-lg border border-slate-200/80">• ${esc(ai.issue || 'Untitled')}</div>
-                                    `).join('')}
+                                    `).join('')}`}
                                 </div>
                                 <div class="list-memos md:col-span-4 flex items-center gap-1.5 justify-end flex-wrap md:flex-col md:flex-nowrap md:items-stretch md:justify-start md:ml-auto md:w-40">
                                     ${memoBtn(`openCaseSummaryModal(${esc(JSON.stringify(p.id))})`, 'Case Summary', 'fa-file-lines', caseSummary, 'bg-sky-500 text-white border-sky-500 hover:bg-sky-600', 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100')}
@@ -2860,14 +2874,14 @@
             const list = patient.medicalBackground || [];
             return `
                 <div class="size-scale bg-white p-2.5 sm:p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <div class="flex items-center justify-between gap-2 flex-wrap ${isMedicalBgCollapsed ? '' : 'mb-3'}">
+                    <div data-fit class="flex items-center justify-between gap-2 whitespace-nowrap ${isMedicalBgCollapsed ? '' : 'mb-3'}">
                         <div class="flex items-center space-x-2 cursor-pointer" onclick="toggleMedicalBackgroundCollapse()">
                             <h3 class="font-bold text-slate-800 text-[calc(13px*var(--ts,1))] sm:text-sm">Medical Background</h3>
                             <span class="text-[calc(11px*var(--ts,1))] text-slate-400 font-semibold">(${list.length})</span>
                             <i class="fa-solid fa-chevron-${isMedicalBgCollapsed ? 'down' : 'up'} text-xs text-slate-400"></i>
                         </div>
                         <div class="flex items-center gap-3">
-                        <button data-edit-trigger onclick="addMedicalBackground(${pid})" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
+                        <button data-edit-trigger onclick="addMedicalBackground(${pid})" title="Add" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 whitespace-nowrap"><i class="fa-solid fa-plus"></i><span class="fit-label">Add</span></button>
                         </div>
                     </div>
                     <div class="${isMedicalBgCollapsed ? 'hidden' : ''}">
@@ -3015,10 +3029,10 @@
                 : { box: 'bg-orange-50 border-orange-300', title: 'text-orange-900', icon: 'fa-bed-pulse', iconCls: 'text-orange-500', btn: 'bg-orange-600 hover:bg-orange-700', grip: 'bg-orange-100 text-orange-400', edit: 'border-orange-400', soft: 'hover:bg-orange-50 border-orange-200 text-orange-600' };
             return `
                 <div class="size-scale ${A.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0 ${issuesFill(isConsult) ? 'flex-1 flex flex-col justify-center' : ''}">
-                    <div class="flex items-center justify-between ${coreCollapsed.issues ? '' : 'mb-2 sm:mb-3'}">
+                    <div data-fit class="flex items-center justify-between gap-2 whitespace-nowrap ${coreCollapsed.issues ? '' : 'mb-2 sm:mb-3'}">
                         <button onclick="toggleCoreBox('issues')" class="text-left font-bold ${A.title} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${A.icon} ${A.iconCls}"></i> ${L.title}
                             <span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${issues.length})</span><i class="fa-solid fa-chevron-${coreCollapsed.issues ? 'down' : 'up'} text-xs opacity-50"></i></button>
-                        <button data-edit-trigger onclick="addActiveIssue(${pid})" class="px-2.5 sm:px-3 py-1 sm:py-1.5 ${A.btn} text-white rounded-lg sm:rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${coreCollapsed.issues ? 'hidden' : ''}"><i class="fa-solid fa-plus"></i> Add</button>
+                        <button data-edit-trigger onclick="addActiveIssue(${pid})" class="px-2.5 sm:px-3 py-1 sm:py-1.5 ${A.btn} text-white rounded-lg sm:rounded-xl text-xs font-semibold transition flex items-center gap-1.5 ${coreCollapsed.issues ? 'hidden' : ''}"><i class="fa-solid fa-plus"></i><span class="fit-label">Add</span></button>
                     </div>
                     <div class="${coreCollapsed.issues ? 'hidden' : ''}">
                     ${issues.length === 0 ? `<div class="p-3 text-center text-slate-400 italic text-[calc(13px*var(--ts,1))] sm:text-sm">${L.empty}</div>` : ''}
@@ -3162,15 +3176,15 @@
             const dc = note.discharge;
             const titleHtml = `<h3 class="font-bold ${K.titleCls} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${K.icon} ${K.iconCls}"></i> ${K.title}
                 <span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${plan.length})</span><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-xs opacity-50"></i>
-                ${isDc && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : 'Discharged'}</span>` : ''}
-                ${isSignOff && dc ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-emerald-700 text-white">Signed off</span>` : ''}</h3>`;
+                ${isDc && dc && collapsed ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : 'Discharged'}</span>` : ''}
+                ${isSignOff && dc && collapsed ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-emerald-700 text-white">Signed off</span>` : ''}</h3>`;
             return `
                 <div class="size-scale ${K.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
-                    <div class="flex items-center justify-between ${collapsed ? '' : 'mb-2 sm:mb-3'}">
+                    <div data-fit class="flex items-center justify-between gap-2 whitespace-nowrap ${collapsed ? '' : 'mb-2 sm:mb-3'}">
                         <button onclick="${isDc ? 'toggleDcPlanCollapse()' : "toggleCoreBox('plan')"}" class="text-left">${titleHtml}</button>
-                        <div class="flex items-center gap-2 ${collapsed ? 'hidden' : ''}">
-                            ${plan.length ? `<button onclick="clearPlan(${pid}, '${kind}')" class="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-trash"></i> Clear All</button>` : ''}
-                            <button data-edit-trigger onclick="addPlanItem(${pid}, '${kind}')" class="px-3 py-1.5 ${K.btn} text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
+                        <div class="flex items-center gap-2 shrink-0 ${collapsed ? 'hidden' : ''}">
+                            ${plan.length ? `<button onclick="clearPlan(${pid}, '${kind}')" title="Clear all" class="px-3 py-1.5 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-trash"></i><span class="fit-label">Clear All</span></button>` : ''}
+                            <button data-edit-trigger onclick="addPlanItem(${pid}, '${kind}')" title="Add" class="px-3 py-1.5 ${K.btn} text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i><span class="fit-label">Add</span></button>
                         </div>
                     </div>
                     <div class="${collapsed ? 'hidden' : ''}">
@@ -9069,7 +9083,7 @@
         }, { passive: false });
         document.addEventListener('selectstart', (e) => { if (inkDraw && inkDraw.started) e.preventDefault(); }, true);
         window.addEventListener('resize', inkLayoutSoon);
-        window.addEventListener('resize', () => requestAnimationFrame(fitListBar));
+        window.addEventListener('resize', () => requestAnimationFrame(() => { fitListBar(); fitBoxHeaders(); }));
         try { new ResizeObserver(() => inkLayoutSoon()).observe(document.getElementById('main-view')); } catch (e) {}
 
         window.onload = async function() {
