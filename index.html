@@ -384,10 +384,99 @@
         const BACKUP_KEYS = ['settings', 'all_patients', 'daily_records', 'list_ink', 'physician_colors_v2', 'physician_color_pins', 'lab_settings', 'theme', 'card_scale', 'text_scale', 'settings_closed', 'entry_split_v1'];
         let saveErrorShown = false;
 
+        /* ---- Big storage ----
+           Patients, day lists, list ink and box states live in the browser's database (IndexedDB), which has
+           far more room than the small "localStorage" the app used at first. They are kept in memory while the
+           app is open (so reading stays instant) and written to the database a moment after each change.
+           Older data is moved over automatically the first time; small settings stay where they were. */
+        const BIG_KEYS = ['all_patients', 'daily_records', 'list_ink', 'entry_view'];
+        const BigStore = {
+            db: null, ok: false, mem: {}, pending: {}, timer: null,
+            full: false,
+            fail(msg) {
+                this.full = true;
+                if (saveErrorShown) return;
+                saveErrorShown = true;
+                alert(msg || 'RoundMaster could not save your changes. Storage may be full or blocked. Go to Settings and export a backup now.');
+            },
+            openDb() {
+                return new Promise((resolve, reject) => {
+                    let done = false;
+                    const t = setTimeout(() => { if (!done) { done = true; reject(new Error('timeout')); } }, 4000);
+                    try {
+                        const req = indexedDB.open('roundmaster', 1);
+                        req.onupgradeneeded = () => { if (!req.result.objectStoreNames.contains('kv')) req.result.createObjectStore('kv'); };
+                        req.onsuccess = () => { if (done) return; done = true; clearTimeout(t); resolve(req.result); };
+                        req.onerror = () => { if (done) return; done = true; clearTimeout(t); reject(req.error); };
+                        req.onblocked = () => {};
+                    } catch (e) { done = true; clearTimeout(t); reject(e); }
+                });
+            },
+            async ready() {
+                let db = null;
+                for (let i = 0; i < 2 && !db; i++) { try { db = await this.openDb(); } catch (e) {} }
+                if (!db) {
+                    // never moved yet: keep working from localStorage as before
+                    if (localStorage.getItem(STORAGE_PREFIX + 'idb') !== '1') return;
+                    alert('RoundMaster could not open its storage. Please close the app completely and open it again.');
+                    throw new Error('storage unavailable');
+                }
+                this.db = db;
+                const vals = await new Promise((resolve, reject) => {
+                    const out = {}, tx = db.transaction('kv', 'readonly'), st = tx.objectStore('kv');
+                    BIG_KEYS.forEach(k => { const r = st.get(k); r.onsuccess = () => { out[k] = r.result; }; });
+                    tx.oncomplete = () => resolve(out); tx.onerror = () => reject(tx.error);
+                });
+                const moved = [];
+                BIG_KEYS.forEach(k => {
+                    if (typeof vals[k] === 'string') this.mem[k] = vals[k];
+                    else {
+                        const old = localStorage.getItem(STORAGE_PREFIX + k);
+                        if (old !== null) { this.mem[k] = old; moved.push(k); }
+                    }
+                });
+                if (moved.length) {
+                    await new Promise((resolve, reject) => {
+                        const tx = db.transaction('kv', 'readwrite'), st = tx.objectStore('kv');
+                        moved.forEach(k => st.put(this.mem[k], k));
+                        tx.oncomplete = resolve; tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
+                    });
+                    moved.forEach(k => localStorage.removeItem(STORAGE_PREFIX + k)); // safely copied: free the small storage
+                }
+                try { localStorage.setItem(STORAGE_PREFIX + 'idb', '1'); } catch (e) {}
+                this.ok = true;
+                const flushNow = () => this.flush();
+                document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushNow(); });
+                window.addEventListener('pagehide', flushNow);
+            },
+            put(key, str) {
+                if (str === null) delete this.mem[key]; else this.mem[key] = str;
+                this.pending[key] = true;
+                if (!this.timer) this.timer = setTimeout(() => this.flush(), 80);
+            },
+            flush() {
+                clearTimeout(this.timer); this.timer = null;
+                const keys = Object.keys(this.pending);
+                if (!keys.length || !this.db) return;
+                this.pending = {};
+                try {
+                    const tx = this.db.transaction('kv', 'readwrite'), st = tx.objectStore('kv');
+                    keys.forEach(k => { if (this.mem[k] === undefined) st.delete(k); else st.put(this.mem[k], k); });
+                    const bad = () => { keys.forEach(k => { this.pending[k] = true; }); this.fail(); };
+                    tx.onerror = bad; tx.onabort = bad;
+                } catch (e) { this.fail(); }
+            },
+            size() { return Object.values(this.mem).reduce((n, v) => n + (v ? v.length : 0), 0); }
+        };
+
         const Store = {
+            raw(key) {
+                if (BigStore.ok && BIG_KEYS.includes(key)) return BigStore.mem[key] === undefined ? null : BigStore.mem[key];
+                try { return localStorage.getItem(STORAGE_PREFIX + key); } catch (e) { return null; }
+            },
             get(key, defaultValue) {
                 try {
-                    const val = localStorage.getItem(STORAGE_PREFIX + key);
+                    const val = this.raw(key);
                     return val ? JSON.parse(val) : defaultValue;
                 } catch(e) {
                     return defaultValue;
@@ -395,15 +484,18 @@
             },
             set(key, value) {
                 try {
-                    localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value));
+                    const str = JSON.stringify(value);
+                    if (BigStore.ok && BIG_KEYS.includes(key)) { BigStore.put(key, str); return true; }
+                    localStorage.setItem(STORAGE_PREFIX + key, str);
                     return true;
                 } catch(e) {
-                    if (!saveErrorShown) {
-                        saveErrorShown = true;
-                        alert('RoundMaster could not save your changes. Browser storage may be full or blocked. Go to Settings and export a backup now.');
-                    }
+                    BigStore.fail();
                     return false;
                 }
+            },
+            remove(key) {
+                if (BigStore.ok && BIG_KEYS.includes(key)) { BigStore.put(key, null); return; }
+                try { localStorage.removeItem(STORAGE_PREFIX + key); } catch (e) {}
             },
             getSettings() {
                 const st = this.get('settings', DEFAULT_SETTINGS);
@@ -988,6 +1080,7 @@
         let isMedicalBgCollapsed = false;
         let editingTile = null; // patient record: which single detail box is being edited ('room', 'name', 'tags'...)
         let profileEncounterIdx = 0; // which encounter is expanded on the All Patients record (0 = most recent)
+        let storageEstimate = null;  // { usage, quota } from the browser, when it tells us
         let storagePersisted = null; // true / false / null (unsupported or unknown)
 
         // Browser / Android back button: every page change is a history step, so Back returns to the
@@ -1759,9 +1852,47 @@
            VIEWS
            ========================================================= */
 
+        /* Storage nearly full: back up, then start fresh. The backup file keeps everything, and can be
+           restored (or merged back) from Settings at any time. */
+        let freshArmed = false, freshTimer = null;
+        function renderStorageWarning() {
+            const fill = storageFill();
+            if (fill < 0.8 && !BigStore.full) return '';
+            const st = getBackupStatus();
+            const backedUp = st.days !== null && st.days < 1;
+            return `
+                <div class="w-full max-w-5xl mb-6 bg-rose-50 border-2 border-rose-200 text-rose-900 rounded-2xl p-4 flex flex-col items-center text-center gap-3">
+                    <div class="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 text-sm">
+                        <i class="fa-solid fa-hard-drive text-rose-500 text-lg sm:text-base"></i>
+                        <span><strong>Storage is ${BigStore.full ? 'full' : Math.round(fill * 100) + '% full'}.</strong> Back up your data, then start fresh. The backup keeps everything and can be brought back any time from Settings.</span>
+                    </div>
+                    <div class="flex flex-wrap items-center justify-center gap-2">
+                        <button onclick="openExportModal()" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-medium transition flex items-center gap-2"><i class="fa-solid fa-file-export"></i> 1. Back up now</button>
+                        <button onclick="startFresh()" ${backedUp ? '' : 'disabled'} title="${backedUp ? 'Clears patients, lists and notes on this device (settings stay)' : 'Back up first'}"
+                            class="px-4 py-2 rounded-xl text-sm font-medium transition flex items-center gap-2 ${!backedUp ? 'bg-white text-rose-300 border border-rose-200 cursor-not-allowed' : freshArmed ? 'bg-rose-700 text-white' : 'bg-white text-rose-700 border border-rose-300 hover:bg-rose-100'}">
+                            <i class="fa-solid fa-broom"></i> ${freshArmed ? 'Tap again to start fresh' : '2. Start fresh'}</button>
+                    </div>
+                </div>`;
+        }
+        function startFresh() {
+            const st = getBackupStatus();
+            if (!(st.days !== null && st.days < 1)) { showToast('Back up first'); return; }
+            if (!freshArmed) {
+                freshArmed = true; renderApp();
+                clearTimeout(freshTimer); freshTimer = setTimeout(() => { freshArmed = false; if (currentRoute === 'home') renderApp(); }, 3000);
+                return;
+            }
+            freshArmed = false; clearTimeout(freshTimer);
+            Store.set('all_patients', []); Store.set('daily_records', {}); Store.set('list_ink', {}); Store.set('entry_view', {});
+            BigStore.flush(); BigStore.full = false; saveErrorShown = false;
+            activePatientId = null;
+            renderApp();
+            showToast('Started fresh. Your backup has everything; restore it from Settings when you need it.');
+        }
         function renderHomeView() {
             return `
                 <div class="flex-1 flex flex-col items-center justify-center py-12 px-4">
+                    ${renderStorageWarning()}
                     ${renderBackupBanner()}
                     <div class="text-center mb-10">
                         <div class="rm-logo inline-block w-20 h-20 rounded-3xl mb-4 shadow-md" role="img" aria-label="RoundMaster"></div>
@@ -2186,7 +2317,7 @@
                                         <div class="font-semibold text-slate-800 bg-white px-2 py-1 rounded-lg border border-slate-200/80">• ${esc(ai.issue || 'Untitled')}</div>
                                     `).join('')}
                                 </div>
-                                <div class="md:col-span-4 flex items-center gap-1.5 justify-end flex-wrap">
+                                <div class="list-memos md:col-span-4 flex items-center gap-1.5 justify-end flex-wrap md:flex-col md:flex-nowrap md:items-stretch md:justify-start md:ml-auto md:w-40">
                                     ${memoBtn(`openCaseSummaryModal(${esc(JSON.stringify(p.id))})`, 'Case Summary', 'fa-file-lines', caseSummary, 'bg-sky-500 text-white border-sky-500 hover:bg-sky-600', 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100')}
                                     ${memoBtn(`openMemoModal(${esc(JSON.stringify(p.id))})`, isConsult ? 'Updates' : 'Memo', 'fa-note-sticky', dailyMemo, 'bg-amber-400 text-amber-950 border-amber-400 hover:bg-amber-500', 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100')}
                                     ${memoBtn(`openEmrMemoModal(${esc(JSON.stringify(p.id))})`, 'EMR Memo', 'fa-file-medical', emrMemo, 'bg-pink-500 text-white border-pink-500 hover:bg-pink-600', 'bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100')}
@@ -5880,6 +6011,30 @@
             window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (getTheme() === 'system') applyTheme(); });
         } catch (e) {}
 
+        const fmtBytes = (n) => n >= 1e9 ? (n / 1e9).toFixed(1) + ' GB' : n >= 1e6 ? (n / 1e6).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1e3)) + ' KB';
+        function appDataSize() {
+            let data = BigStore.size();
+            try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k.startsWith(STORAGE_PREFIX)) data += (localStorage.getItem(k) || '').length; } } catch (e) {}
+            return data;
+        }
+        // how full the app's storage is (0..1)
+        function storageFill() {
+            const q = BigStore.ok ? (storageEstimate && storageEstimate.quota) : 5e6;
+            return q ? appDataSize() / q : 0;
+        }
+        function renderStorageMeter() {
+            const data = appDataSize();
+            const q = storageEstimate && storageEstimate.quota;
+            const room = BigStore.ok ? (q ? fmtBytes(q) + ' available to the app' : 'Plenty of room') : 'About 5 MB (older storage)';
+            const pct = BigStore.ok ? (q ? Math.min(100, data / q * 100) : 0) : Math.min(100, data / 5e6 * 100);
+            return `
+                <div class="p-3 rounded-2xl bg-white/70 border border-amber-200 sm:col-span-2">
+                    <span class="block text-amber-700/70 mb-1">Storage used</span>
+                    <span class="font-bold text-slate-800">Your data: ${fmtBytes(data)}</span>
+                    <span class="text-slate-500"> · ${esc(room)}</span>
+                    <div class="mt-2 h-1.5 rounded-full bg-amber-100 overflow-hidden"><div class="h-full rounded-full ${pct > 80 ? 'bg-rose-500' : 'bg-amber-500'}" style="width:${Math.max(pct, 1).toFixed(1)}%"></div></div>
+                </div>`;
+        }
         function renderSettingsView() {
             const settings = Store.getSettings();
             const backup = getBackupStatus();
@@ -5941,6 +6096,7 @@
                                     <span class="block text-amber-700/70 mb-1">Storage protection</span>
                                     <span class="font-bold text-slate-800">${esc(protectionText)}</span>
                                 </div>
+                                ${renderStorageMeter()}
                             </div>`
                     })}
 
@@ -7257,7 +7413,7 @@
             const data = {};
             BACKUP_KEYS.forEach(k => {
                 try {
-                    const raw = localStorage.getItem(STORAGE_PREFIX + k);
+                    const raw = Store.raw(k);
                     if (raw !== null) data[k] = JSON.parse(raw);
                 } catch(e) {}
             });
@@ -7674,9 +7830,9 @@
                 if (!withSettings && SETTINGS_KEYS.includes(k)) return; // keep this device's settings
                 try {
                     if (data[k] !== undefined) {
-                        localStorage.setItem(STORAGE_PREFIX + k, JSON.stringify(data[k]));
+                        if (!Store.set(k, data[k])) ok = false;
                     } else {
-                        localStorage.removeItem(STORAGE_PREFIX + k);
+                        Store.remove(k);
                     }
                 } catch(e) { ok = false; }
             });
@@ -7700,10 +7856,11 @@
                 if (navigator.storage && navigator.storage.persist) {
                     storagePersisted = (await navigator.storage.persisted()) || (await navigator.storage.persist());
                 }
+                if (navigator.storage && navigator.storage.estimate) storageEstimate = await navigator.storage.estimate();
             } catch(e) {
                 storagePersisted = null;
             }
-            if (currentRoute === 'settings') renderApp();
+            if (currentRoute === 'settings' || (currentRoute === 'home' && storageFill() >= 0.8)) renderApp();
         }
 
         // One-time update: earlier versions stored consult entries under the plain date (shared with the
@@ -8210,16 +8367,27 @@
         }
         // Highlighter: its own layer that is multiplied with the page, so typed text and pen ink stay crisp
         // on top of it; drawn as one see-through sheet, so crossing strokes don't build up darker.
-        const INK_HL_OPACITY = 0.8;
+        const INK_HL_OPACITY = 0.75;
         function inkHlLayer(create) {
             let hl = document.getElementById('ink-hl-layer');
             if (!hl && create) {
                 hl = document.createElement('div');
                 hl.id = 'ink-hl-layer';
-                hl.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;overflow:visible;pointer-events:none;z-index:19;mix-blend-mode:multiply';
-                hl.innerHTML = `<svg class="ink-saved" style="position:absolute;left:0;top:0;overflow:visible" width="1" height="1"></svg><svg class="ink-live" style="position:absolute;left:0;top:0;overflow:visible;opacity:${INK_HL_OPACITY}" width="1" height="1"></svg>`;
+                // A full-page sheet (not a 0-size box) and no z-index: Safari/iPad only multiplies reliably like this.
+                hl.style.cssText = 'position:absolute;left:0;top:0;overflow:hidden;pointer-events:none;mix-blend-mode:multiply';
+                hl.innerHTML = `<svg class="ink-saved" style="position:absolute;left:0;top:0;overflow:visible"></svg><svg class="ink-live" style="position:absolute;left:0;top:0;overflow:visible;opacity:${INK_HL_OPACITY}"></svg>`;
                 const ov = document.getElementById('ink-overlay');
                 document.body.insertBefore(hl, ov || null);
+            }
+            if (hl) {
+                // as big as the app itself (measured without this sheet, so it never makes the page longer)
+                const app = document.getElementById('app') || document.body, ar = app.getBoundingClientRect();
+                const W = document.documentElement.clientWidth, H = Math.ceil(Math.max(ar.bottom + window.scrollY, window.innerHeight));
+                if (hl._w !== W || hl._h !== H) {
+                    hl._w = W; hl._h = H;
+                    hl.style.width = W + 'px'; hl.style.height = H + 'px';
+                    hl.querySelectorAll('svg').forEach(sv => { sv.setAttribute('width', W); sv.setAttribute('height', H); });
+                }
             }
             return hl;
         }
@@ -8236,18 +8404,103 @@
             return out;
         }
         const penWidth = (pr) => PEN_W * (0.35 + 1.3 * (pr == null ? 0.5 : pr));
-        function inkPenPath(rawPts, rawPrs, sc = 1) {
-            const pts = inkSmooth(inkSmooth(rawPts));
+        /* ---- Compact stroke storage ----
+           A saved stroke keeps exactly the shape you drew, but stored lean: the line is smoothed once at
+           save time, points that add nothing (within about a tenth of a pixel of the line) are dropped, and the
+           rest are written as small steps from the previous point (about 3 letters per point instead of ~17). */
+        const INK_ABC = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+        const INK_IDX = {}; for (let i = 0; i < 64; i++) INK_IDX[INK_ABC[i]] = i;
+        function inkVarint(n) { let z = n >= 0 ? n * 2 : -n * 2 - 1, out = ''; while (z >= 32) { out += INK_ABC[32 + (z % 32)]; z = Math.floor(z / 32); } return out + INK_ABC[z]; }
+        function inkEncode(flat, prs) {
+            let out = prs ? 'P' : 'H', px = 0, py = 0;
+            for (let i = 0, j = 0; i < flat.length; i += 2, j++) {
+                const x = Math.round(flat[i] * 4), y = Math.round(flat[i + 1] * 4);
+                out += inkVarint(x - px) + inkVarint(y - py); px = x; py = y;
+                if (prs) out += INK_ABC[Math.max(0, Math.min(63, Math.round((prs[j] == null ? 0.5 : prs[j]) * 63)))];
+            }
+            return out;
+        }
+        const inkDecCache = new Map();
+        function inkDecode(z) {
+            let r = inkDecCache.get(z); if (r) return r;
+            const hasP = z[0] === 'P', p = [], pr = hasP ? [] : null;
+            let i = 1, x = 0, y = 0, bad = false;
+            const num = () => { let v = 0, mul = 1; for (;;) { const c = INK_IDX[z[i++]]; if (c === undefined) { bad = true; return 0; } if (c < 32) { v += c * mul; break; } v += (c - 32) * mul; mul *= 32; } return v % 2 ? -(v + 1) / 2 : v / 2; };
+            while (i < z.length && !bad) {
+                x += num(); y += num(); if (bad) break;
+                p.push(x / 4, y / 4);
+                if (hasP) { const c = INK_IDX[z[i++]]; pr.push(c === undefined ? 0.5 : c / 63); }
+            }
+            r = { p, pr, sm: true };
+            if (inkDecCache.size > 5000) inkDecCache.clear();
+            inkDecCache.set(z, r);
+            return r;
+        }
+        // points of a saved stroke (new compact form, or the older plain lists)
+        function inkDec(st) { return st.z ? inkDecode(st.z) : { p: st.p || [], pr: st.pr || null, sm: false }; }
+        // smooth once, then drop points that don't change the shape (or the pressure) noticeably
+        function inkPrepare(pts, prs, hl) {
+            const sp = hl ? inkSmooth(pts) : inkSmooth(inkSmooth(pts));
+            const n = sp.length;
+            // pressure smoothed the same way the screen shows it while writing
+            if (prs) prs = prs.map((v, i) => (prs[Math.max(0, i - 1)] + 2 * v + prs[Math.min(prs.length - 1, i + 1)]) / 4);
+            if (n <= 2) return { pts: sp, prs: prs ? prs.slice(0, n) : null };
+            const keep = new Uint8Array(n); keep[0] = keep[n - 1] = 1;
+            const stack = [[0, n - 1]];
+            while (stack.length) {
+                const [a, b] = stack.pop();
+                if (b - a < 2) continue;
+                const [ax, ay] = sp[a], [bx, by] = sp[b];
+                const dx = bx - ax, dy = by - ay, L = Math.hypot(dx, dy) || 1e-9;
+                let worst = -1, wi = -1;
+                for (let i = a + 1; i < b; i++) {
+                    const d = Math.abs((sp[i][0] - ax) * dy - (sp[i][1] - ay) * dx) / L;
+                    let dp = 0;
+                    if (prs) { const t = (i - a) / (b - a); dp = Math.abs(prs[i] - (prs[a] + (prs[b] - prs[a]) * t)) * 5; }
+                    const e = Math.max(d, dp);
+                    if (e > worst) { worst = e; wi = i; }
+                }
+                if (worst > 0.12) { keep[wi] = 1; stack.push([a, wi], [wi, b]); }
+            }
+            const outP = [], outR = prs ? [] : null;
+            for (let i = 0; i < n; i++) if (keep[i]) { outP.push(sp[i]); if (prs) outR.push(prs[i]); }
+            return { pts: outP, prs: outR };
+        }
+        // saved strokes keep only the key points: draw a smooth curve back through them (and their pressure)
+        function inkDensify(pts, prs) {
+            const n = pts.length;
+            if (n < 3) return { pts, prs };
+            const P = [], R = [];
+            for (let i = 0; i < n - 1; i++) {
+                const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n - 1, i + 2)];
+                const steps = Math.max(1, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 1.5));
+                for (let k = 0; k < steps; k++) {
+                    const t = k / steps, t2 = t * t, t3 = t2 * t;
+                    const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
+                    P.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+                    if (prs) R.push(prs[i] + (prs[i + 1] - prs[i]) * t);
+                }
+            }
+            P.push(pts[n - 1].slice()); if (prs) R.push(prs[n - 1]);
+            return { pts: P, prs: prs ? R : null };
+        }
+        function inkPenPath(rawPts, rawPrs, sc = 1, pre = false) {
+            if (pre) { const dd = inkDensify(rawPts, rawPrs); rawPts = dd.pts; rawPrs = dd.prs; }
+            const pts = pre ? rawPts : inkSmooth(inkSmooth(rawPts));
             const n = pts.length;
             let ws = pts.map((_, i) => penWidth(rawPrs ? rawPrs[Math.min(i, rawPrs.length - 1)] : 0.5) * sc);
-            ws = ws.map((w, i) => (ws[Math.max(0, i - 1)] + 2 * w + ws[Math.min(n - 1, i + 1)]) / 4);
+            if (!pre) ws = ws.map((w, i) => (ws[Math.max(0, i - 1)] + 2 * w + ws[Math.min(n - 1, i + 1)]) / 4);
             if (n === 1 || (n === 2 && Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]) < 0.5)) {
                 const r = Math.max(ws[0] * 0.75, 1.2 * sc);
                 return `<circle cx="${f1(pts[0][0])}" cy="${f1(pts[0][1])}" r="${f1(r)}"/>`;
             }
             const L = [], R = [];
             for (let i = 0; i < n; i++) {
-                const a = pts[Math.max(0, i - 1)], b = pts[Math.min(n - 1, i + 1)];
+                // direction from points a little way off on each side (steadier than the next-door points)
+                let ia = i, ib = i;
+                while (ia > 0 && Math.hypot(pts[i][0] - pts[ia][0], pts[i][1] - pts[ia][1]) < 2.5) ia--;
+                while (ib < n - 1 && Math.hypot(pts[ib][0] - pts[i][0], pts[ib][1] - pts[i][1]) < 2.5) ib++;
+                const a = pts[ia], b = pts[ib];
                 let dx = b[0] - a[0], dy = b[1] - a[1];
                 const len = Math.hypot(dx, dy) || 1; dx /= len; dy /= len;
                 const h = ws[i] / 2;
@@ -8259,18 +8512,18 @@
             const re = ws[n - 1] / 2, rs = ws[0] / 2;
             return `<path d="M${f1(L[0][0])} ${f1(L[0][1])}${curve(L)}A${f1(re)} ${f1(re)} 0 0 0 ${f1(Rr[0][0])} ${f1(Rr[0][1])}${curve(Rr)}A${f1(rs)} ${f1(rs)} 0 0 0 ${f1(L[0][0])} ${f1(L[0][1])}Z"/>`;
         }
-        function inkHlPath(rawPts, sc = 1) {
-            const pts = inkSmooth(rawPts);
+        function inkHlPath(rawPts, sc = 1, pre = false) {
+            const pts = pre ? inkDensify(rawPts, null).pts : inkSmooth(rawPts);
             let d = `M${f1(pts[0][0])} ${f1(pts[0][1])}`;
             if (pts.length === 1) d += 'l0.1 0';
             for (let i = 1; i < pts.length - 1; i++) d += `Q${f1(pts[i][0])} ${f1(pts[i][1])} ${f1((pts[i][0] + pts[i + 1][0]) / 2)} ${f1((pts[i][1] + pts[i + 1][1]) / 2)}`;
             if (pts.length > 1) d += `L${f1(pts[pts.length - 1][0])} ${f1(pts[pts.length - 1][1])}`;
             return `<path d="${d}" fill="none" stroke-width="${f1(HL_W * sc)}" stroke-linecap="round" stroke-linejoin="round"/>`;
         }
-        function inkStrokeSvg(pts, prs, st, sc = 1) {
+        function inkStrokeSvg(pts, prs, st, sc = 1, pre = false) {
             if (!pts.length) return '';
-            return st.hl ? `<g class="ink-hl" stroke="${st.c}">${inkHlPath(pts, sc)}</g>`
-                         : `<g fill="${st.c}">${inkPenPath(pts, prs, sc)}</g>`;
+            return st.hl ? `<g class="ink-hl" stroke="${st.c}">${inkHlPath(pts, sc, pre)}</g>`
+                         : `<g fill="${st.c}">${inkPenPath(pts, prs, sc, pre)}</g>`;
         }
         let inkRaf = 0;
         function inkLayoutSoon() { cancelAnimationFrame(inkRaf); inkRaf = requestAnimationFrame(() => inkLayout()); }
@@ -8302,7 +8555,7 @@
                 if (!r.width || !r.height || (a !== root && (!a.offsetParent || inkFolded(a)))) return; // hidden (collapsed)
                 if (a.hasAttribute('data-ink-pad')) { // scribble space: shown only while there is room for it
                     const sc0 = (st) => st.aw ? r.width / st.aw : 1;
-                    const bottom = Math.max(...ink[key].map(st => { let m = 0; for (let j = 1; j < st.p.length; j += 2) m = Math.max(m, st.p[j] * sc0(st)); return m; }));
+                    const bottom = Math.max(...ink[key].map(st => { const sp = inkDec(st).p; let m = 0; for (let j = 1; j < sp.length; j += 2) m = Math.max(m, sp[j] * sc0(st)); return m; }));
                     if (bottom > r.height + 24) return;
                 }
                 const [ax, ay] = pageXY(r.left, r.top);
@@ -8310,9 +8563,10 @@
                     const sc = st.aw ? r.width / st.aw : 1;
                     const off = move && move.ids.has(st.id) ? [move.dx, move.dy] : [0, 0];
                     const pts = [];
-                    for (let j = 0; j < st.p.length; j += 2) pts.push([ax + st.p[j] * sc + off[0], ay + st.p[j + 1] * sc + off[1]]);
+                    const dec = inkDec(st), sp = dec.p;
+                    for (let j = 0; j < sp.length; j += 2) pts.push([ax + sp[j] * sc + off[0], ay + sp[j + 1] * sc + off[1]]);
                     inkCache.push({ key, id: st.id, pts, w: (st.hl ? HL_W : PEN_W * 1.6) * sc });
-                    if (st.hl) hl += inkStrokeSvg(pts, null, st, sc); else pen += inkStrokeSvg(pts, st.pr, st, sc);
+                    if (st.hl) hl += inkStrokeSvg(pts, null, st, sc, dec.sm); else pen += inkStrokeSvg(pts, dec.pr, st, sc, dec.sm);
                 });
             });
             // lasso selection frame
@@ -8393,8 +8647,11 @@
             items.forEach(({ st, abs, sc }) => {
                 const f = inkFind(note, st.id);
                 if (f) { note.ink[f.k].splice(f.i, 1); if (!note.ink[f.k].length) delete note.ink[f.k]; }
-                const flat = []; abs.forEach(([x, y]) => flat.push(Math.round((x - ax) * 10) / 10, Math.round((y - ay) * 10) / 10));
-                (note.ink[key] = note.ink[key] || []).push({ ...st, w: st.w, aw: Math.round(r.width * 10) / 10, p: flat });
+                let pts = abs, prs = st.hl ? null : (st.z ? inkDecode(st.z).pr : (st.pr || abs.map(() => 0.5)));
+                if (!st.z && !st.fresh) { const pp = inkPrepare(pts, prs, st.hl); pts = pp.pts; prs = pp.prs; } // older stroke: store it the lean way
+                const flat = []; pts.forEach(([x, y]) => flat.push(x - ax, y - ay));
+                const { p, pr, z, fresh, ...rest } = st;
+                (note.ink[key] = note.ink[key] || []).push({ ...rest, aw: Math.round(r.width * 10) / 10, z: inkEncode(flat, prs) });
             });
             return key;
         }
@@ -8402,7 +8659,8 @@
             const f = inkFind(note, id); if (!f) return null;
             const pos = inkAnchorPos(root, f.k); if (!pos) return null;
             const sc = f.st.aw ? pos.w / f.st.aw : 1;
-            const abs = []; for (let j = 0; j < f.st.p.length; j += 2) abs.push([pos.x + f.st.p[j] * sc, pos.y + f.st.p[j + 1] * sc]);
+            const sp = inkDec(f.st).p;
+            const abs = []; for (let j = 0; j < sp.length; j += 2) abs.push([pos.x + sp[j] * sc, pos.y + sp[j + 1] * sc]);
             return { st: f.st, abs, sc };
         }
         // Strokes written in one go (each within INK_GROUP_MS of the last, and close to it) are one scribble.
@@ -8425,12 +8683,13 @@
             if (!note) return;
             if (!note.ink) note.ink = {};
             const id = 's' + now.toString(36) + Math.random().toString(36).slice(2, 6);
-            const stroke = { id, c: d.st.c, w: d.st.hl ? HL_W : PEN_W, aw: 1, p: [] };
-            if (d.st.hl) stroke.hl = true; else stroke.pr = d.prs.map(v => Math.round(v * 100) / 100);
+            const prep = inkPrepare(d.pts, d.st.hl ? null : d.prs, d.st.hl);
+            const stroke = { id, c: d.st.c, w: d.st.hl ? HL_W : PEN_W, aw: 1, fresh: true };
+            if (d.st.hl) stroke.hl = true; else stroke.pr = prep.prs;
             // the whole scribble (earlier strokes + this one) goes to one box
             const items = inkGroup.ids.map(gid => inkAbs(root, note, gid)).filter(Boolean);
             (note.ink.page = note.ink.page || []).push(stroke); // placeholder, re-anchored just below
-            items.push({ st: stroke, abs: d.pts.map(p => p.slice()) });
+            items.push({ st: stroke, abs: prep.pts });
             inkReanchor(root, note, items);
             inkGroup.ids.push(id);
             inkSaveAll(all);
@@ -8698,7 +8957,8 @@
         window.addEventListener('resize', () => requestAnimationFrame(fitListBar));
         try { new ResizeObserver(() => inkLayoutSoon()).observe(document.getElementById('main-view')); } catch (e) {}
 
-        window.onload = function() {
+        window.onload = async function() {
+            try { await BigStore.ready(); } catch (e) { return; }
             applyTheme();
             applyCardScale(); applyTextScale();
             try { fixEndorseSpelling(); } catch (e) { console.error(e); }
@@ -8707,7 +8967,7 @@
             try { migrateRecs(); } catch (e) { console.error(e); }
             // One-time move of old shared notes into per-day notes, saved immediately.
             try {
-                const raw = localStorage.getItem(STORAGE_PREFIX + 'all_patients');
+                const raw = Store.raw('all_patients');
                 if (raw && /"(activeIssues|resolvedIssues|plan|memo)"\s*:/.test(raw) &&
                     JSON.parse(raw).some(p => ['activeIssues', 'resolvedIssues', 'plan', 'memo'].some(k => p[k] !== undefined))) {
                     Store.savePatients(Store.getPatients());
