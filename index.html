@@ -2419,7 +2419,11 @@
                             <h3 class="font-bold text-slate-800 text-sm truncate">${esc(p.name)}</h3>
                             <span class="shrink-0 text-[calc(11px*var(--ts,1))] bg-maroon-50 text-maroon-700 font-semibold px-2 py-0.5 rounded-md">MRN: ${esc(p.mrn || '-')}</span>
                         </div>
-                        <p class="text-xs font-semibold text-slate-600">${esc(ageText({ ...info, dob: p.dob }, todayStr()) || '-')} <span class="text-slate-300 mx-1">|</span> <span class="px-1.5 py-0.5 rounded font-bold text-[calc(11px*var(--ts,1))] ${p.gender === 'F' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}">${esc(p.gender || 'M')}</span> <span class="text-slate-300 mx-1">|</span> ${esc(info.goalsOfCare || '-')}</p>
+                        <p class="text-xs font-semibold text-slate-600">${esc(ageText({ ...info, dob: p.dob }, todayStr()) || '-')} <span class="text-slate-300 mx-1">|</span> <span class="px-1.5 py-0.5 rounded font-bold text-[calc(11px*var(--ts,1))] ${p.gender === 'F' ? 'bg-pink-100 text-pink-700' : 'bg-blue-100 text-blue-700'}">${esc(p.gender || 'M')}</span> <span class="text-slate-300 mx-1">|</span> ${(() => {
+                            if (!info.goalsOfCare) return '-';
+                            const g = (Store.getSettings().goalsOfCare || []).find(x => x.name.toLowerCase() === String(info.goalsOfCare).toLowerCase());
+                            return `<span class="px-1.5 py-0.5 rounded font-bold text-[calc(11px*var(--ts,1))] border border-black/5" style="background-color: ${esc(g ? g.color : '#f8fafc')}; color: ${esc(g && g.fontColor ? g.fontColor : '#1e293b')}">${esc(info.goalsOfCare)}</span>`;
+                        })()}</p>
                         ${info.medicalBackground.length > 0 && !hide ? `
                             <div class="mt-2 space-y-1 text-[calc(11px*var(--ts,1))]">
                                 ${info.medicalBackground.map(mb => `
@@ -2782,16 +2786,22 @@
             const dcol = coreCollapsed.details && !editingTile;
             // Folded: one slim line with the essentials
             const loc = [patient.ward, patient.room, patient.bed].map(v => String(v || '').trim());
-            const brief = [loc.some(Boolean) ? loc.map(v => v || '—').join(' / ') : '',
-                ageText(patient, currentViewDate), patient.gender, patient.admissionDate ? 'Day ' + c.diffDays : '', patient.goalsOfCare,
-                (isConsult ? patient.consultant : patient.physician) ? 'Dr ' + (isConsult ? patient.consultant : patient.physician) : ''].filter(Boolean);
+            // ward, gender and goals of care as small coloured chips (colours from Settings), the rest as text
+            const chip = (text, cls, style = '') => `<span class="inline-block px-1.5 py-px rounded-md font-bold border border-black/5 ${cls}" style="${style}">${esc(text)}</span>`;
+            const brief = [
+                loc.some(Boolean) ? (loc[0] ? chip(loc[0], '', `background-color: ${esc(c.wardBg)}; color: ${esc(c.wardColor)}`) : '—') + ' / ' + esc(loc[1] || '—') + ' / ' + esc(loc[2] || '—') : '',
+                esc(ageText(patient, currentViewDate) || ''),
+                patient.gender ? chip(patient.gender, c.genderBg) : '',
+                patient.admissionDate ? 'Day ' + esc(c.diffDays) : '',
+                patient.goalsOfCare ? chip(patient.goalsOfCare, '', `background-color: ${esc(c.gocBg)}; color: ${esc(c.gocColor)}`) : '',
+                (isConsult ? patient.consultant : patient.physician) ? 'Dr ' + esc(isConsult ? patient.consultant : patient.physician) : ''].filter(Boolean);
             return `
                 <div class="size-scale bg-white ${dcol ? 'px-3 py-2' : 'p-2.5 sm:p-4'} rounded-2xl border border-slate-200 shadow-sm">
                     ${wardDatalist()}
                     <button onclick="toggleCoreBox('details')" class="w-full flex items-center gap-2 text-left ${dcol ? '' : 'mb-2'}">
                         <span class="text-[calc(11px*var(--ts,1))] font-bold text-slate-500 uppercase tracking-wider shrink-0">Patient details</span>
                         <i class="fa-solid fa-chevron-${dcol ? 'down' : 'up'} text-[calc(10px*var(--ts,1))] text-slate-400 shrink-0"></i>
-                        ${dcol ? `<span class="min-w-0 truncate text-[calc(12px*var(--ts,1))] font-semibold text-slate-700">${brief.map(esc).join('<span class="text-slate-300 font-normal mx-1.5">┃</span>')}</span>` : ''}
+                        ${dcol ? `<span class="min-w-0 truncate text-[calc(12px*var(--ts,1))] font-semibold text-slate-700">${brief.join('<span class="text-slate-300 font-normal mx-1.5">┃</span>')}</span>` : ''}
                     </button>
                     ${missing.length ? `
                         <div class="mb-2 sm:mb-3">
@@ -3113,11 +3123,12 @@
         // Active Issues / Consult Details, Plan and the patient details bar: open unless you close them
         // (remembered per entry, and included in Collapse all / Expand all).
         let coreCollapsed = { issues: false, plan: false, details: false, pads: false };
-        // Hidden scribble spaces (only for pen ink): fill the empty room beside / under boxes; opened and
-        // put away only by "Expand all" / "Collapse all".
+        // Empty room beside / under boxes. Its size changes with the boxes around it, so it is a no-ink zone
+        // (the pen can't write there). Ink written there by older versions still shows, and is put away by
+        // "Collapse all" / brought back by "Expand all".
         // Folded record: Active Issues / Consult Details grows to the height of the folded Plan boxes beside it
         const issuesFill = (isConsult) => coreCollapsed.issues && coreCollapsed.plan && (isConsult || dcPlanCollapsed);
-        const inkPad = (id) => `<div class="ink-pad ${coreCollapsed.pads ? 'hidden' : ''}" data-ink="pad:${id}" data-ink-pad></div>`;
+        const inkPad = (id) => `<div class="ink-pad" data-ink="pad:${id}" data-ink-pad></div>`;
         function noteCoreChoice(item, closed) {
             if (!viewEntryKey) return;
             const all = Store.get('entry_view', {});
@@ -8344,7 +8355,8 @@
             const folded = (id) => id === 'box:details' ? !!root.querySelector('button[onclick="toggleCoreBox(\'details\')"] .fa-chevron-down')
                 : id === 'box:issues' ? coreCollapsed.issues : id === 'box:plan' ? coreCollapsed.plan : id === 'box:dcplan' ? dcPlanCollapsed
                 : id === 'box:medbg' ? isMedicalBgCollapsed : id === 'box:inv' ? invBoxCollapsed
-                : id.startsWith('memo:') ? !!memoCollapsed[id.slice(5)] : id === 'pad:mb' ? isMedicalBgCollapsed : closedCards.has(id);
+                : id.startsWith('memo:') ? !!memoCollapsed[id.slice(5)] : id === 'pad:mb' ? (isMedicalBgCollapsed || coreCollapsed.pads)
+                : id.startsWith('pad:') ? coreCollapsed.pads : closedCards.has(id);
             root.querySelectorAll('[data-ink]').forEach(el => { if (el !== root) el.toggleAttribute('data-ink-fold', !!folded(el.getAttribute('data-ink'))); });
         }
         const inkFolded = (a) => !!(a.closest && a.closest('[data-ink-fold]'));
@@ -8473,11 +8485,15 @@
             const P = [], R = [];
             for (let i = 0; i < n - 1; i++) {
                 const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(n - 1, i + 2)];
-                const steps = Math.max(1, Math.ceil(Math.hypot(p2[0] - p1[0], p2[1] - p1[1]) / 1.5));
+                const d01 = Math.hypot(p1[0] - p0[0], p1[1] - p0[1]), d12 = Math.hypot(p2[0] - p1[0], p2[1] - p1[1]), d23 = Math.hypot(p3[0] - p2[0], p3[1] - p2[1]);
+                // curve directions scaled to this piece's length, so a short piece next to a long one can't overshoot or loop
+                const k1 = d12 / ((d01 + d12) || 1), k2 = d12 / ((d12 + d23) || 1);
+                const m1 = [(p2[0] - p0[0]) * k1, (p2[1] - p0[1]) * k1], m2 = [(p3[0] - p1[0]) * k2, (p3[1] - p1[1]) * k2];
+                const steps = Math.max(1, Math.ceil(d12 / 1.5));
                 for (let k = 0; k < steps; k++) {
                     const t = k / steps, t2 = t * t, t3 = t2 * t;
-                    const f = (a, b, c, d) => 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - d) * t2 + (-a + 3 * b - 3 * c + d) * t3);
-                    P.push([f(p0[0], p1[0], p2[0], p3[0]), f(p0[1], p1[1], p2[1], p3[1])]);
+                    const h00 = 2 * t3 - 3 * t2 + 1, h10 = t3 - 2 * t2 + t, h01 = -2 * t3 + 3 * t2, h11 = t3 - t2;
+                    P.push([h00 * p1[0] + h10 * m1[0] + h01 * p2[0] + h11 * m2[0], h00 * p1[1] + h10 * m1[1] + h01 * p2[1] + h11 * m2[1]]);
                     if (prs) R.push(prs[i] + (prs[i + 1] - prs[i]) * t);
                 }
             }
@@ -8490,9 +8506,13 @@
             const n = pts.length;
             let ws = pts.map((_, i) => penWidth(rawPrs ? rawPrs[Math.min(i, rawPrs.length - 1)] : 0.5) * sc);
             if (!pre) ws = ws.map((w, i) => (ws[Math.max(0, i - 1)] + 2 * w + ws[Math.min(n - 1, i + 1)]) / 4);
+            // the width may only change gradually along the line (no sudden steps or knobs where the pen
+            // slows down or lifts off): at most ~0.35 px of width per px travelled
+            for (let i = 1; i < n; i++) { const dd = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); ws[i] = Math.min(ws[i], ws[i - 1] + 0.35 * dd); }
+            for (let i = n - 2; i >= 0; i--) { const dd = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]); ws[i] = Math.min(ws[i], ws[i + 1] + 0.35 * dd); }
             if (n === 1 || (n === 2 && Math.hypot(pts[1][0] - pts[0][0], pts[1][1] - pts[0][1]) < 0.5)) {
                 const r = Math.max(ws[0] * 0.75, 1.2 * sc);
-                return `<circle cx="${f1(pts[0][0])}" cy="${f1(pts[0][1])}" r="${f1(r)}"/>`;
+                return `<circle stroke="none" cx="${f1(pts[0][0])}" cy="${f1(pts[0][1])}" r="${f1(r)}"/>`;
             }
             const L = [], R = [];
             for (let i = 0; i < n; i++) {
@@ -8510,7 +8530,18 @@
             const curve = (arr) => { let d = ''; for (let i = 1; i < arr.length - 1; i++) d += `Q${f1(arr[i][0])} ${f1(arr[i][1])} ${f1((arr[i][0] + arr[i + 1][0]) / 2)} ${f1((arr[i][1] + arr[i + 1][1]) / 2)}`; return d + `L${f1(arr[arr.length - 1][0])} ${f1(arr[arr.length - 1][1])}`; };
             const Rr = R.slice().reverse();
             const re = ws[n - 1] / 2, rs = ws[0] / 2;
-            return `<path d="M${f1(L[0][0])} ${f1(L[0][1])}${curve(L)}A${f1(re)} ${f1(re)} 0 0 0 ${f1(Rr[0][0])} ${f1(Rr[0][1])}${curve(Rr)}A${f1(rs)} ${f1(rs)} 0 0 0 ${f1(L[0][0])} ${f1(L[0][1])}Z"/>`;
+            // Sharp corners and tight loops make the outline cross itself, which can punch small holes in it.
+            // A core line along the middle (in short pieces, each a touch thinner than the stroke there)
+            // fills those spots without changing the stroke's shape.
+            let core = '';
+            for (let i = 0; i < n - 1; i += 5) {
+                const j = Math.min(n - 1, i + 6);
+                let w = Infinity; for (let k = i; k <= j; k++) w = Math.min(w, ws[k]);
+                let d = `M${f1(pts[i][0])} ${f1(pts[i][1])}`;
+                for (let k = i + 1; k <= j; k++) d += `L${f1(pts[k][0])} ${f1(pts[k][1])}`;
+                core += `<path d="${d}" fill="none" stroke-width="${f1(w * 0.9)}" stroke-linecap="round" stroke-linejoin="round"/>`;
+            }
+            return core + `<path stroke="none" d="M${f1(L[0][0])} ${f1(L[0][1])}${curve(L)}A${f1(re)} ${f1(re)} 0 0 0 ${f1(Rr[0][0])} ${f1(Rr[0][1])}${curve(Rr)}A${f1(rs)} ${f1(rs)} 0 0 0 ${f1(L[0][0])} ${f1(L[0][1])}Z"/>`;
         }
         function inkHlPath(rawPts, sc = 1, pre = false) {
             const pts = pre ? inkDensify(rawPts, null).pts : inkSmooth(rawPts);
@@ -8523,7 +8554,7 @@
         function inkStrokeSvg(pts, prs, st, sc = 1, pre = false) {
             if (!pts.length) return '';
             return st.hl ? `<g class="ink-hl" stroke="${st.c}">${inkHlPath(pts, sc, pre)}</g>`
-                         : `<g fill="${st.c}">${inkPenPath(pts, prs, sc, pre)}</g>`;
+                         : `<g fill="${st.c}" stroke="${st.c}">${inkPenPath(pts, prs, sc, pre)}</g>`;
         }
         let inkRaf = 0;
         function inkLayoutSoon() { cancelAnimationFrame(inkRaf); inkRaf = requestAnimationFrame(() => inkLayout()); }
@@ -8565,7 +8596,7 @@
                     const pts = [];
                     const dec = inkDec(st), sp = dec.p;
                     for (let j = 0; j < sp.length; j += 2) pts.push([ax + sp[j] * sc + off[0], ay + sp[j + 1] * sc + off[1]]);
-                    inkCache.push({ key, id: st.id, pts, w: (st.hl ? HL_W : PEN_W * 1.6) * sc });
+                    inkCache.push({ key, id: st.id, hl: !!st.hl, pts, w: (st.hl ? HL_W : PEN_W * 1.6) * sc });
                     if (st.hl) hl += inkStrokeSvg(pts, null, st, sc, dec.sm); else pen += inkStrokeSvg(pts, dec.pr, st, sc, dec.sm);
                 });
             });
@@ -8615,7 +8646,7 @@
             const area = (bx2 - bx1) * (by2 - by1);
             let best = null, bestArea = Infinity;
             root.querySelectorAll('[data-ink]').forEach(a => {
-                if (a === root || !a.offsetParent || inkFolded(a)) return;
+                if (a === root || !a.offsetParent || inkFolded(a) || a.hasAttribute('data-ink-pad')) return;
                 const r = a.getBoundingClientRect();
                 if (!r.width || !r.height) return;
                 const ox = Math.max(0, Math.min(bx2, r.right) - Math.max(bx1, r.left)), oy = Math.max(0, Math.min(by2, r.bottom) - Math.max(by1, r.top));
@@ -8849,6 +8880,14 @@
                 else if (d.kind === 'pen') live.innerHTML = inkStrokeSvg(d.pts, d.prs, d.st);
             });
         }
+        // Empty spaces whose size or contents shift (beside / under boxes, between investigation cards):
+        // ink there would drift away from where it was written, so the pen doesn't write there.
+        let inkZoneToastAt = 0;
+        function inkNoInkZone(el) {
+            if (!el || !el.closest) return false;
+            if (el.closest('[data-ink-pad]')) return true;
+            return !!(el.closest('.inv-board') && !el.closest('.inv-card'));
+        }
         const inside = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
         document.addEventListener('pointerdown', (e) => {
             const root = inkStartable(e);
@@ -8865,6 +8904,12 @@
                 inkSel = null; inkLayout();
             }
             const kind = inkTool.mode === 'eraser' ? 'eraser' : inkTool.mode === 'lasso' ? 'lasso' : 'pen';
+            if (kind === 'pen' && inkNoInkZone(e.target)) {
+                e.preventDefault();
+                const now = Date.now();
+                if (now - inkZoneToastAt > 1500) { inkZoneToastAt = now; showToast("Ink can't be added here"); }
+                return;
+            }
             inkDraw = { kind, root, id: e.pointerId, start: [e.clientX, e.clientY], started: false, pts: [p0], prs: [e.pressure || 0.5],
                 st: { c: inkTool.hl ? inkTool.hlColor : inkTool.color, hl: inkTool.hl } };
             if (kind === 'eraser') inkEraserCursor(e.clientX, e.clientY, true);
@@ -8936,9 +8981,12 @@
                     if (!ids.length) showToast('Nothing selected - circle some ink');
                 }
             } else if (d.kind === 'pen' && inkNearGroup(inkBox(d.pts))) {
-                // a quick tap right by what you're writing (the dot on an i, a full stop) is a dot, not a tap
+                // a quick tap right by what you're writing (the dot on an i, a full stop) is a dot, not a tap -
+                // unless it lands on ink already there (the pencil bouncing as it lifts): then it's ignored
                 stopNextClick();
-                inkSave(d.root, d);
+                const [tx, ty] = d.pts[0];
+                const onInk = inkCache.some(c => !c.hl && c.pts.some(([x, y]) => Math.hypot(x - tx, y - ty) <= c.w / 2 + 3));
+                if (!onInk) inkSave(d.root, d);
             }
             inkLayout();
             inkShowToolbar();
