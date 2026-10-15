@@ -1477,7 +1477,8 @@
 
             if (key.startsWith('set:')) { // Settings: wards, goals of care, tags, treatment codes
                 const cat = key.slice(4), settings = Store.getSettings();
-                if (Array.isArray(settings[cat])) { moveItem(settings[cat], from, to); Store.saveSettings(settings); }
+                // swap: the dragged item and the one it's dropped on change places; everything else stays put
+                if (Array.isArray(settings[cat]) && settings[cat][from] && settings[cat][to]) { const a = settings[cat]; [a[from], a[to]] = [a[to], a[from]]; Store.saveSettings(settings); }
                 renderApp();
                 return;
             }
@@ -2364,6 +2365,12 @@
                                     `).join('')}`}
                                 </div>
                                 <div class="list-memos md:col-span-4 flex items-center gap-1.5 justify-end flex-wrap md:flex-col md:flex-nowrap md:items-stretch md:justify-start md:ml-auto md:w-40">
+                                    ${(() => { // signed off / transferred / discharged today: not on tomorrow's list
+                                        const dcx = note && note.discharge; if (!dcx) return '';
+                                        const [lbl, cls, ic] = dcx.to === 'signoff' ? ['Signed off', 'bg-emerald-700', 'fa-hand-point-right'] : dcx.to === 'toc' ? ['TOC Acptd', 'bg-teal-600', 'fa-right-left']
+                                            : dcx.to === 'transfer' ? ['Discharged · TOC', 'bg-teal-700', 'fa-right-left'] : dcx.to === 'expired' ? ['Expired', 'bg-red-800', 'fa-heart-crack'] : ['Discharged', 'bg-green-800', 'fa-house'];
+                                        return `<span class="px-2.5 py-1 rounded-lg text-[calc(11px*var(--ts,1))] font-bold text-white text-center ${cls}" title="Not carried to tomorrow's list"><i class="fa-solid ${ic}"></i> ${lbl}</span>`;
+                                    })()}
                                     ${memoBtn(`openCaseSummaryModal(${esc(JSON.stringify(p.id))})`, 'Case Summary', 'fa-file-lines', caseSummary, 'bg-sky-500 text-white border-sky-500 hover:bg-sky-600', 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100')}
                                     ${memoBtn(`openMemoModal(${esc(JSON.stringify(p.id))})`, isConsult ? 'Updates' : 'Memo', 'fa-note-sticky', dailyMemo, 'bg-amber-400 text-amber-950 border-amber-400 hover:bg-amber-500', 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100')}
                                     ${memoBtn(`openEmrMemoModal(${esc(JSON.stringify(p.id))})`, 'EMR Memo', 'fa-file-medical', emrMemo, 'bg-pink-500 text-white border-pink-500 hover:bg-pink-600', 'bg-pink-50 text-pink-700 border-pink-200 hover:bg-pink-100')}
@@ -3208,7 +3215,7 @@
             const dc = note.discharge;
             const titleHtml = `<h3 class="font-bold ${K.titleCls} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${K.icon} ${K.iconCls}"></i> ${K.title}
                 <span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${plan.length})</span><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-xs opacity-50"></i>
-                ${isDc && dc && collapsed ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : 'Discharged'}</span>` : ''}
+                ${isDc && dc && collapsed ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : dc.to === 'transfer' ? 'bg-teal-700 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : dc.to === 'transfer' ? 'TOC' : 'Discharged'}</span>` : ''}
                 ${isSignOff && dc && collapsed ? (dc.to === 'toc' ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-teal-600 text-white">TOC</span>` : `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-emerald-700 text-white">Signed off</span>`) : ''}</h3>`;
             return `
                 <div class="size-scale ${K.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
@@ -3246,8 +3253,8 @@
                     ${isDc ? `
                         <div class="flex justify-center pt-3">
                             ${dc ? `
-                                <button onclick="reverseDischarge(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition ${dc.to === 'expired' ? 'bg-red-800 hover:bg-red-900' : 'bg-green-800 hover:bg-green-900'} text-white shadow-sm" title="Tap to reverse the discharge">
-                                    <i class="fa-solid fa-circle-check"></i> ${dc.to === 'expired' ? 'Discharged · Expired' : 'Discharged · Home'}
+                                <button onclick="reverseDischarge(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition ${dc.to === 'expired' ? 'bg-red-800 hover:bg-red-900' : dc.to === 'transfer' ? 'bg-teal-700 hover:bg-teal-800' : 'bg-green-800 hover:bg-green-900'} text-white shadow-sm" title="Tap to reverse the discharge">
+                                    <i class="fa-solid fa-circle-check"></i> ${dc.to === 'expired' ? 'Discharged · Expired' : dc.to === 'transfer' ? 'Discharged · TOC' : 'Discharged · Home'}
                                 </button>` : `
                                 <button onclick="openDischargeModal(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-white hover:bg-green-50 text-green-800 border-2 border-green-700 shadow-sm">
                                     <i class="fa-solid fa-door-open"></i> Discharge
@@ -4042,8 +4049,9 @@
                             <div class="flex gap-2">
                                 ${choice('to', 'home', '<i class="fa-solid fa-house"></i> Home', 'bg-green-700 text-white border-green-700')}
                                 ${choice('to', 'expired', '<i class="fa-solid fa-heart-crack"></i> Expired', 'bg-red-800 text-white border-red-800')}
+                                ${choice('to', 'transfer', '<i class="fa-solid fa-right-left"></i> TOC', 'bg-teal-700 text-white border-teal-700')}
                             </div>
-                            ${d.to === 'expired' ? '<p class="text-[calc(11px*var(--ts,1))] text-slate-400 mt-1">Goals of care will be set to Expired.</p>' : ''}
+                            ${d.to === 'expired' ? '<p class="text-[calc(11px*var(--ts,1))] text-slate-400 mt-1">Goals of care will be set to Expired.</p>' : d.to === 'transfer' ? '<p class="text-[calc(11px*var(--ts,1))] text-slate-400 mt-1">Transferred to the care of another team.</p>' : ''}
                         </div>
                         <div>
                             <span class="block text-xs font-semibold text-slate-500 mb-1.5">Remove from tomorrow's list?</span>
@@ -4102,7 +4110,7 @@
             dcDraft = null;
             closeModal();
             renderApp();
-            showToast(d.to === 'signoff' ? 'Signed off' : d.to === 'expired' ? 'Marked as expired' : 'Discharged home');
+            showToast(d.to === 'signoff' ? 'Signed off' : d.to === 'expired' ? 'Marked as expired' : d.to === 'transfer' ? 'Discharged · transfer of care' : 'Discharged home');
         }
         /* Transfer of care (consult -> our inpatient list): the patient goes on today's inpatient list with
            this consult's entry and the TOC tag, and is not carried to tomorrow's consult list. Reversible. */
@@ -4112,7 +4120,7 @@
             const inf = p.dayInfo[iKey], note = p.days && p.days[iKey];
             if (note && String(note.impression || '').trim()) {
                 const imp = String(note.impression).trim(), cs = String(inf.caseSummary || '').trim();
-                const head = `Patient was under ${String(primaryTeam || '').trim() || 'the primary team'} Accepted TOC on ${fmtDate(keyDate(iKey))} with the impression:`;
+                const head = `Patient was under ${String(primaryTeam || '').trim() || 'the primary team'}. Accepted TOC on [${fmtDate(keyDate(iKey))}] with the impression:`;
                 if (!cs.includes(imp)) inf.caseSummary = (cs ? cs + '\n\n' : '') + head + '\n' + imp;
                 delete note.impression;
             }
@@ -6278,8 +6286,59 @@
                                 `).join('')}
                             </div>`
                     })}
+
+                    <div class="flex justify-center pt-6 pb-10">
+                        <button onclick="openWipeModal()" class="px-6 py-2.5 rounded-2xl bg-white border-2 border-rose-300 text-rose-700 hover:bg-rose-50 text-sm font-bold flex items-center gap-2 transition shadow-sm">
+                            <i class="fa-solid fa-triangle-exclamation"></i> Wipe data
+                        </button>
+                    </div>
                 </div>
             `;
+        }
+
+        /* ---- Wipe data (Settings, bottom) ----
+           Patient records only: patients, day lists, list ink and box states. Everything: also settings,
+           colours, lab settings, appearance - the app starts as new. Each choice needs a second tap. */
+        let wipeArmed = null, wipeTimer = null;
+        function openWipeModal() {
+            wipeArmed = null;
+            renderWipeModal();
+        }
+        function renderWipeModal() {
+            const btn = (kind, label, sub) => `<button onclick="wipeData('${kind}')" class="w-full px-4 py-3 rounded-2xl text-left border-2 transition ${wipeArmed === kind ? 'bg-rose-600 border-rose-600 text-white' : 'bg-white border-rose-200 text-rose-700 hover:bg-rose-50'}">
+                    <span class="block text-sm font-bold">${wipeArmed === kind ? '<i class="fa-solid fa-hand-pointer"></i> Tap again to wipe' : label}</span>
+                    <span class="block text-xs ${wipeArmed === kind ? 'text-white/85' : 'text-slate-500'}">${sub}</span></button>`;
+            document.getElementById('modal-container').innerHTML = `
+                <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50" onclick="if (event.target === this) closeModal()">
+                    <div class="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4 border-t-4 border-rose-500">
+                        <h3 class="text-lg font-bold text-slate-800 flex items-center gap-2"><i class="fa-solid fa-triangle-exclamation text-rose-500"></i> Are you sure?</h3>
+                        <p class="text-sm text-slate-600">This permanently deletes data on this device and can't be undone. <button onclick="closeModal(); openExportModal()" class="underline font-semibold text-amber-700">Export a backup first</button>.</p>
+                        <div class="space-y-2">
+                            ${btn('patients', 'Wipe patient records only', 'Patients, lists, notes and ink. Your settings stay.')}
+                            ${btn('all', 'Wipe everything, including settings', 'The app starts as new on this device.')}
+                        </div>
+                        <div class="flex justify-end"><button onclick="closeModal()" class="px-4 py-2 bg-slate-100 rounded-xl text-sm font-medium">Cancel</button></div>
+                    </div>
+                </div>`;
+        }
+        function wipeData(kind) {
+            if (wipeArmed !== kind) {
+                wipeArmed = kind; renderWipeModal();
+                clearTimeout(wipeTimer); wipeTimer = setTimeout(() => { wipeArmed = null; if (document.getElementById('modal-container').innerHTML.includes('Are you sure?')) renderWipeModal(); }, 4000);
+                return;
+            }
+            clearTimeout(wipeTimer); wipeArmed = null;
+            BIG_KEYS.forEach(k => Store.remove(k));
+            try { localStorage.removeItem(STORAGE_PREFIX + 'all_patients'); localStorage.removeItem(STORAGE_PREFIX + 'daily_records'); } catch (e) {}
+            if (kind === 'all') {
+                try {
+                    Object.keys(localStorage).filter(k => k.startsWith(STORAGE_PREFIX) && k !== STORAGE_PREFIX + 'idb').forEach(k => localStorage.removeItem(k));
+                } catch (e) {}
+            }
+            BigStore.flush();
+            closeModal();
+            showToast(kind === 'all' ? 'Everything wiped' : 'Patient records wiped');
+            setTimeout(() => { if (kind === 'all') location.reload(); else { activePatientId = null; renderApp(); } }, 400);
         }
 
         /* =========================================================

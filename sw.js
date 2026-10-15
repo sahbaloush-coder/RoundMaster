@@ -3,7 +3,7 @@
    - The app page: tries the internet first (to pick up updates), falls back to the saved copy.
    - Styling, icons and fonts: served from the saved copy.
    Patient data is NOT here - it stays in the app's own storage on the device. */
-const CACHE = 'roundmaster-7d4b23545a';
+const CACHE = 'roundmaster-e1c5fb14d5';
 const FILES = [
     "./",
     "./index.html",
