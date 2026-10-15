@@ -196,6 +196,7 @@
         @keyframes pttPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
         html.dark #ink-hl-layer { filter: invert(1) hue-rotate(180deg); }
+        html.dark #ink-fab { box-shadow: 0 0 0 2px rgba(0,0,0,.45), 0 0 18px 6px rgba(0,0,0,.55), 0 6px 18px rgba(0,0,0,.4) !important; }
         /* Date boxes: type the date, or tap the calendar button */
         .date-field { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; }
         .date-field .date-field-text { background: transparent; border: 0; outline: none; padding: 0; margin: 0; font: inherit; color: inherit; width: 10.5ch; min-width: 0; }
@@ -1289,7 +1290,7 @@
 
         document.addEventListener('pointerdown', (e) => {
             const handle = e.target.closest ? e.target.closest('.drag-handle') : null;
-            if (!handle || (e.pointerType === 'mouse' && e.button !== 0)) return;
+            if (!handle || (e.pointerType === 'mouse' && e.button !== 0) || e.__inkTook) return;
             const item = handle.closest('[data-sort-item]');
             const list = item && item.closest('[data-sort-list]');
             if (!list) return;
@@ -9041,10 +9042,20 @@
             return !!(g && g.entry === inkEntry() && startedAt - g.last < INK_GROUP_MS &&
                 box[0] < g.box[2] + INK_GROUP_GAP && box[2] > g.box[0] - INK_GROUP_GAP && box[1] < g.box[3] + INK_GROUP_GAP && box[3] > g.box[1] - INK_GROUP_GAP);
         }
+        // Dots: a tap within 3 s of the last stroke and close to the scribble counts as a dot.
+        // A tap landing on the line drawn a moment ago (within ¼ s) is the pencil bouncing: ignored.
+        function inkDotOk(d) {
+            const g = inkGroup, t0 = d.t0 || Date.now();
+            if (!g || g.entry !== inkEntry() || t0 - g.last > 3000) return false;
+            const [tx, ty] = d.pts[0], M = 120;
+            if (tx < g.box[0] - M || tx > g.box[2] + M || ty < g.box[1] - M || ty > g.box[3] + M) return false;
+            if (t0 - g.last < 250 && inkCache.some(c => !c.hl && c.pts.some(([x, y]) => Math.hypot(x - tx, y - ty) <= c.w / 2 + 1))) return false;
+            return true;
+        }
         function inkSave(root, d) {
             const entry = inkEntry(), now = Date.now();
             const box = inkBox(d.pts);
-            if (!inkNearGroup(box, d.t0 || now)) inkGroup = { entry, ids: [], box, last: now };
+            if (!inkNearGroup(box, d.t0 || now)) inkGroup = { entry, ids: [], box, last: now, gid: now.toString(36) + Math.random().toString(36).slice(2, 5) };
             else inkGroup.box = [Math.min(inkGroup.box[0], box[0]), Math.min(inkGroup.box[1], box[1]), Math.max(inkGroup.box[2], box[2]), Math.max(inkGroup.box[3], box[3])];
             inkGroup.last = now;
             const all = inkAll();
@@ -9053,7 +9064,7 @@
             if (!note.ink) note.ink = {};
             const id = 's' + now.toString(36) + Math.random().toString(36).slice(2, 6);
             const prep = inkPrepare(d.pts, d.st.hl ? null : d.prs, d.st.hl);
-            const stroke = { id, c: d.st.c, w: d.st.hl ? HL_W : PEN_W, aw: 1, fresh: true };
+            const stroke = { id, c: d.st.c, w: d.st.hl ? HL_W : PEN_W, aw: 1, fresh: true, g: inkGroup.gid };
             if (d.st.hl) stroke.hl = true; else stroke.pr = prep.prs;
             // the whole scribble (earlier strokes + this one) goes to one box
             const items = inkGroup.ids.map(gid => inkAbs(root, note, gid)).filter(Boolean);
@@ -9090,12 +9101,26 @@
             inkSaveAll(all);
             inkLayout();
         }
+        // Moving, deleting, erasing and clearing are undone by putting back the ink as it was before.
+        function inkSnap() { const n = inkNote(); return JSON.stringify({ ink: (n && n.ink) || {}, thl: (n && n.thl) || [] }); }
+        function inkRestore(json) {
+            const all = inkAll(), note = inkNote(all);
+            if (!note) return;
+            const o = JSON.parse(json);
+            if (Object.keys(o.ink).length) note.ink = o.ink; else delete note.ink;
+            if (o.thl.length) note.thl = o.thl; else delete note.thl;
+            inkSaveAll(all);
+            inkSel = null;
+            inkLayout();
+        }
+        function inkPushSnap(before) { if (before !== inkSnap()) { inkUndo.push({ entry: inkEntry(), snap: before }); inkClearRedo(); } }
         function inkUndoLast() {
             const entry = inkEntry();
             for (let i = inkUndo.length - 1; i >= 0; i--) {
                 const u = inkUndo[i];
                 if (u.entry !== entry) continue;
                 inkUndo.splice(i, 1);
+                if (u.snap) { inkRedo.push({ entry, snap: inkSnap() }); inkRestore(u.snap); return true; }
                 const all = inkAll();
                 const note = inkNote(all);
                 const gone = inkRemoveId(note, u.id);
@@ -9115,6 +9140,7 @@
                 const r = inkRedo[i];
                 if (r.entry !== entry) continue;
                 inkRedo.splice(i, 1);
+                if (r.snap) { inkUndo.push({ entry, snap: inkSnap() }); inkRestore(r.snap); return; }
                 const all = inkAll(), note = inkNote(all);
                 if (!note) return;
                 if (r.kind === 'ink') (note.ink = note.ink || {}, note.ink[r.key] = note.ink[r.key] || []).push(r.item);
@@ -9126,24 +9152,37 @@
             }
             showToast('Nothing to redo');
         }
+        // the scribble a stroke belongs to (older strokes: those pinned to the same word together)
+        const inkGroupKey = (st) => st.g ? 'g:' + st.g : st.pin ? 'p:' + JSON.stringify(st.pin) : null;
+        function inkExpandGroups(ids) {
+            const note = inkNote(); if (!note || !note.ink) return ids;
+            const strokes = Object.values(note.ink).flat();
+            const shown = new Set(inkCache.filter(c => !c.thl).map(c => c.id));
+            const keys = new Set(ids.map(id => { const st = strokes.find(x => x.id === id); return st && inkGroupKey(st); }).filter(Boolean));
+            return [...new Set([...ids, ...strokes.filter(st => shown.has(st.id) && keys.has(inkGroupKey(st))).map(st => st.id)])];
+        }
         const inkClearRedo = () => { const e = inkEntry(); inkRedo = inkRedo.filter(r => r.entry !== e); };
         function inkDeleteSelection() {
             if (!inkSel) return;
+            const before = inkSnap();
             const all = inkAll();
             const note = inkNote(all);
             inkSel.ids.forEach(id => inkRemoveId(note, id));
             inkSaveAll(all);
             inkSel = null;
             const del = document.getElementById('ink-sel-del'); if (del) del.remove(); // the delete button goes with the ink
+            inkPushSnap(before);
             inkLayout();
         }
         let inkClearArmed = false;
         function inkClearAll() {
             if (!inkClearArmed) { inkClearArmed = true; showToast('Tap clear again to remove all ink on this entry'); inkToolbarRender(); setTimeout(() => { inkClearArmed = false; inkToolbarRender(); }, 3000); return; }
             inkClearArmed = false;
+            const before = inkSnap();
             const all = inkAll();
             const note = inkNote(all);
             if (note && (note.ink || note.thl)) { delete note.ink; delete note.thl; inkSaveAll(all); }
+            inkPushSnap(before);
             inkSel = null;
             inkLayout(); inkToolbarRender();
         }
@@ -9164,6 +9203,33 @@
             const x = p ? p.x * W : W - S - 18, y = p ? p.y * H : H - S - 90;
             return [Math.max(6, Math.min(W - S - 6, x)), Math.max(6, Math.min(H - S - 6, y))];
         }
+        let inkFabAnim = 0;
+        const FAB_SPRING = 'left .45s cubic-bezier(.34,1.56,.64,1), top .45s cubic-bezier(.34,1.56,.64,1), background .15s, color .15s';
+        function inkFabFling(vx, vy) {
+            const fab = document.getElementById('ink-fab'); if (!fab) return;
+            let x = parseFloat(fab.style.left) || 0, y = parseFloat(fab.style.top) || 0;
+            const step = () => {
+                const W = window.innerWidth, H = window.innerHeight, S = 46, m = 6;
+                x += vx; y += vy; vx *= 0.92; vy *= 0.92;
+                if (x < m) { x = m; vx = -vx * 0.55; } if (x > W - S - m) { x = W - S - m; vx = -vx * 0.55; }
+                if (y < m) { y = m; vy = -vy * 0.55; } if (y > H - S - m) { y = H - S - m; vy = -vy * 0.55; }
+                fab.style.left = x + 'px'; fab.style.top = y + 'px';
+                if (Math.hypot(vx, vy) > 0.3) { inkFabAnim = requestAnimationFrame(step); return; }
+                try { localStorage.setItem('roundmaster_pen_fab', JSON.stringify({ x: x / W, y: y / H })); } catch (err) {}
+                fab.style.transition = FAB_SPRING;
+            };
+            cancelAnimationFrame(inkFabAnim);
+            inkFabAnim = requestAnimationFrame(step);
+        }
+        // open toolbar: the button sits right beside it (its ✕ closes the tools); closed: back to its own spot
+        function inkFabPlace() {
+            const fab = document.getElementById('ink-fab'); if (!fab) return;
+            const bar = document.getElementById('ink-toolbar');
+            let x, y;
+            if (inkExpanded && bar) { const r = bar.getBoundingClientRect(); x = Math.min(window.innerWidth - 52, r.right + 8); y = r.top + (r.height - 46) / 2; }
+            else [x, y] = inkFabPos();
+            fab.style.left = x + 'px'; fab.style.top = y + 'px';
+        }
         function inkFabRender() {
             let fab = document.getElementById('ink-fab');
             if (!inkRoot() || !inkFabAllowed()) { if (fab) fab.remove(); return; }
@@ -9172,31 +9238,36 @@
                 fab.id = 'ink-fab';
                 fab.setAttribute('data-ink-ui', '');
                 fab.title = 'Pen tools (drag to move)';
-                fab.style.cssText = 'position:fixed;z-index:9998;width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,23,42,.28);border:1px solid rgba(0,0,0,.08);touch-action:none;user-select:none;-webkit-user-select:none;transition:background .15s,color .15s';
+                fab.style.cssText = 'position:fixed;z-index:9998;width:46px;height:46px;border-radius:50%;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 18px rgba(15,23,42,.28);border:1px solid rgba(0,0,0,.08);touch-action:none;user-select:none;-webkit-user-select:none';
                 let drag = null;
                 fab.addEventListener('pointerdown', (e) => {
                     e.preventDefault(); e.stopPropagation();
+                    cancelAnimationFrame(inkFabAnim);
                     const r = fab.getBoundingClientRect();
-                    drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top, moved: false };
+                    drag = { id: e.pointerId, sx: e.clientX, sy: e.clientY, ox: r.left, oy: r.top, moved: false, hist: [[e.clientX, e.clientY, performance.now()]] };
                     try { fab.setPointerCapture(e.pointerId); } catch (err) {}
                 });
                 fab.addEventListener('pointermove', (e) => {
                     if (!drag || e.pointerId !== drag.id) return;
                     e.preventDefault(); e.stopPropagation();
+                    if (inkExpanded) return; // docked beside the toolbar: tap only
                     const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
                     if (!drag.moved && Math.hypot(dx, dy) < 6) return;
                     drag.moved = true;
-                    const W = window.innerWidth, H = window.innerHeight;
-                    fab.style.left = Math.max(6, Math.min(W - 52, drag.ox + dx)) + 'px';
-                    fab.style.top = Math.max(6, Math.min(H - 52, drag.oy + dy)) + 'px';
+                    fab.style.transition = 'none';
+                    drag.hist.push([e.clientX, e.clientY, performance.now()]); if (drag.hist.length > 6) drag.hist.shift();
+                    fab.style.left = (drag.ox + dx) + 'px';
+                    fab.style.top = (drag.oy + dy) + 'px';
                 });
                 const up = (e) => {
                     if (!drag || e.pointerId !== drag.id) return;
                     e.preventDefault(); e.stopPropagation();
                     if (drag.moved) {
-                        const r = fab.getBoundingClientRect();
-                        try { localStorage.setItem('roundmaster_pen_fab', JSON.stringify({ x: r.left / window.innerWidth, y: r.top / window.innerHeight })); } catch (err) {}
+                        // flick: keep the speed, slow down, bounce off the screen edges
+                        const h = drag.hist, a0 = h[0], a1 = h[h.length - 1], dt = Math.max(16, a1[2] - a0[2]);
+                        inkFabFling((a1[0] - a0[0]) / dt * 16, (a1[1] - a0[1]) / dt * 16);
                     } else if (e.type === 'pointerup') {
+                        fab.animate([{ transform: 'scale(1)' }, { transform: 'scale(.82)' }, { transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 380, easing: 'ease-out' });
                         if (inkExpanded) { inkPinned = false; clearTimeout(inkHideTimer); inkExpanded = false; inkMenu = null; inkEraserCursor(0, 0, false); }
                         else { inkPinned = true; inkExpanded = true; }
                         inkToolbarRender();
@@ -9208,6 +9279,7 @@
                 fab.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
                 document.body.appendChild(fab);
                 const [x, y] = inkFabPos(); fab.style.left = x + 'px'; fab.style.top = y + 'px';
+                requestAnimationFrame(() => { fab.style.transition = FAB_SPRING; });
             }
             const on = inkExpanded;
             fab.style.background = on ? '#7a0410' : 'rgba(255,255,255,.96)';
@@ -9215,7 +9287,11 @@
             fab.innerHTML = `<i class="fa-solid ${on ? 'fa-xmark' : 'fa-pen'}" style="font-size:17px;pointer-events:none"></i>`;
         }
         function inkToolbarRender() {
-            inkFabRender();
+            const out = inkToolbarRender0();
+            inkFabRender(); inkFabPlace();
+            return out;
+        }
+        function inkToolbarRender0() {
             let bar = document.getElementById('ink-toolbar');
             if (!inkRoot() || !inkExpanded) { inkPinned = false; if (bar) bar.remove(); return null; }
             if (!bar) {
@@ -9349,6 +9425,11 @@
                 inkSel = null; inkLayout();
             }
             const kind = inkTool.mode === 'eraser' ? 'eraser' : inkTool.mode === 'lasso' ? 'lasso' : 'pen';
+            // the pen on a drag handle: while you're writing it writes; otherwise it drags the box as usual
+            if (e.target.closest('.drag-handle')) {
+                if (kind === 'pen' && inkNearGroup([p0[0], p0[1], p0[0], p0[1]])) e.__inkTook = true;
+                else return;
+            }
             if (kind === 'pen' && inkNoInkZone(e.target) && !inkNearGroup([p0[0], p0[1], p0[0], p0[1]])) {
                 // taps still work normally here (buttons, date…); only writing is refused
                 inkDraw = { kind: 'blocked', root, id: e.pointerId, start: [e.clientX, e.clientY], started: false };
@@ -9358,7 +9439,7 @@
             if (kind === 'pen') clearTimeout(inkFlashTimer); // still writing: show the word only once the scribble is done
             inkDraw = { kind, root, id: e.pointerId, t0: Date.now(), start: [e.clientX, e.clientY], started: false, pts: [p0], prs: [e.pressure || 0.5],
                 st: { c: inkTool.hl ? inkTool.hlColor : inkTool.color, hl: inkTool.hl } };
-            if (kind === 'eraser') inkEraserCursor(e.clientX, e.clientY, true);
+            if (kind === 'eraser') { inkEraserCursor(e.clientX, e.clientY, true); inkDraw.before = inkSnap(); }
             inkExpand();
         }, true);
         document.addEventListener('pointermove', (e) => {
@@ -9412,15 +9493,17 @@
             const ov = inkOverlay(false);
             if (ov) ov.querySelector('.ink-live').innerHTML = '';
             const hlL = inkHlLayer(false); if (hlL) hlL.querySelector('.ink-live').innerHTML = '';
-            if (d.kind === 'eraser') inkEraserCursor(0, 0, e.pointerType === 'pen' && e.type !== 'pointercancel');
+            if (d.kind === 'eraser') { inkEraserCursor(0, 0, e.pointerType === 'pen' && e.type !== 'pointercancel'); if (d.before) inkPushSnap(d.before); }
             if (d.kind === 'move') {
                 if (d.started && inkSel) {
-                    // drop: the selected ink is re-attached to the box it now sits on
+                    // drop: the selected ink becomes one scribble, attached where it now sits (to a word if near one)
+                    const before = inkSnap();
                     const all = inkAll();
                     const note = inkNote(all);
+                    const g = Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
                     const items = inkSel.ids.map(id => inkAbs(d.root, note, id)).filter(Boolean)
-                        .map(it => ({ ...it, abs: it.abs.map(([x, y]) => [x + d.dx, y + d.dy]) }));
-                    if (items.length) { inkReanchor(d.root, note, items); inkSaveAll(all); }
+                        .map(it => ({ ...it, st: { ...it.st, g }, abs: it.abs.map(([x, y]) => [x + d.dx, y + d.dy]) }));
+                    if (items.length) { inkReanchor(d.root, note, items); inkSaveAll(all); inkPushSnap(before); }
                 }
                 stopNextClick();
                 inkLayout(); inkShowToolbar();
@@ -9431,17 +9514,21 @@
                 if (d.kind === 'pen' && d.pts.length && !(d.st.hl && inkTextHighlight(d.root, d))) inkSave(d.root, d);
                 if (d.kind === 'lasso' && d.pts.length > 2) {
                     const poly = d.pts;
-                    const ids = inkCache.filter(c => !c.thl).filter(c => c.pts.filter(pt => inside(pt, poly)).length >= Math.max(1, c.pts.length * 0.5)).map(c => c.id);
+                    const ids = inkExpandGroups(inkCache.filter(c => !c.thl).filter(c => c.pts.filter(pt => inside(pt, poly)).length >= Math.max(1, c.pts.length * 0.5)).map(c => c.id));
                     inkSel = ids.length ? { entry: inkEntry(), ids } : null;
                     if (!ids.length) showToast('Nothing selected - circle some ink');
                 }
-            } else if (d.kind === 'pen' && inkNearGroup(inkBox(d.pts), d.t0)) {
-                // a quick tap right by what you're writing (the dot on an i, a full stop) is a dot, not a tap -
-                // unless it lands on ink already there (the pencil bouncing as it lifts): then it's ignored
-                stopNextClick();
+            } else if (d.kind === 'lasso') {
+                // lasso tool: tapping a scribble selects all of it
                 const [tx, ty] = d.pts[0];
-                const onInk = inkCache.some(c => !c.hl && c.pts.some(([x, y]) => Math.hypot(x - tx, y - ty) <= c.w / 2 + 3));
-                if (!onInk) inkSave(d.root, d);
+                const hit = inkCache.filter(c => !c.thl).find(c => c.pts.some(([x, y]) => Math.hypot(x - tx, y - ty) <= c.w / 2 + 10));
+                inkSel = hit ? { entry: inkEntry(), ids: inkExpandGroups([hit.id]) } : null;
+                if (hit) stopNextClick();
+            } else if (d.kind === 'pen' && inkDotOk(d)) {
+                // a quick tap while writing or just after (the dot on an i, a full stop) is a dot, not a tap -
+                // unless it is the pencil bouncing on the line it just drew
+                stopNextClick();
+                inkSave(d.root, d);
             }
             inkLayout();
             inkShowToolbar();
@@ -9457,7 +9544,7 @@
         }, { passive: false });
         document.addEventListener('selectstart', (e) => { if (inkDraw && inkDraw.started) e.preventDefault(); }, true);
         window.addEventListener('resize', inkLayoutSoon);
-        window.addEventListener('resize', () => { const f = document.getElementById('ink-fab'); if (f) { const [x, y] = inkFabPos(); f.style.left = x + 'px'; f.style.top = y + 'px'; } });
+        window.addEventListener('resize', () => inkFabPlace());
         // Two-finger tap = Undo (on pages with ink)
         (() => {
             let t2 = null;
