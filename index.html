@@ -2934,15 +2934,22 @@
         // Moves the day counter on by n days (used when a treatment is carried to a later day).
         function shiftCourseText(text, n) {
             const c = parseCourse(text);
-            return (c && n) ? setCourseInText(text, Math.max(1, c.day + n), c.total) : text;
+            // never counts past the end: one day after the last day it just stays "completed"
+            return (c && n) ? setCourseInText(text, Math.max(1, Math.min(c.total + 1, c.day + n)), c.total) : text;
+        }
+        // for the note: a finished course reads "D7/7 (completed)" instead of "D8/7"
+        function courseNoteText(text) {
+            const c = parseCourse(text);
+            return c && c.day > c.total ? String(text).replace(COURSE_RE, `D${c.total}/${c.total} (completed)`) : String(text || '');
         }
         function courseChip(text, onclickJs) {
             const c = parseCourse(text);
             if (!c) return '';
-            const done = c.day > c.total, last = c.day === c.total;
-            const cls = done ? 'bg-rose-100 text-rose-700 border-rose-300 line-through' : last ? 'bg-amber-300 text-amber-950 border-amber-500' : 'bg-amber-100 text-amber-800 border-amber-300';
-            const title = done ? 'Course finished' : last ? 'Last day of the course' : 'Tap to edit the day / total';
-            return `<button onclick="event.stopPropagation(); ${onclickJs}" class="inline-flex items-center px-1.5 py-0.5 rounded-md border text-[0.85em] font-bold align-middle ${cls}" title="${title}">D${c.day}/${c.total}</button>`;
+            // running: amber · last day (completes today): green ✓ · any later day: red (finished on an earlier day)
+            const past = c.day > c.total, last = c.day === c.total;
+            const cls = past ? 'bg-rose-100 text-rose-700 border-rose-300' : last ? 'bg-emerald-100 text-emerald-800 border-emerald-400' : 'bg-amber-100 text-amber-800 border-amber-300';
+            const title = past ? 'Course finished on an earlier day' : last ? 'Course completes today' : 'Tap to edit the day / total';
+            return `<button onclick="event.stopPropagation(); ${onclickJs}" class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[0.85em] font-bold align-middle ${cls}" title="${title}">${last || past ? '<i class="fa-solid fa-check text-[0.85em]"></i>' : ''}D${Math.min(c.day, c.total)}/${c.total}</button>`;
         }
         // Treatment text with its D#/n shown as a chip.
         function treatmentHtml(text, onclickJs) {
@@ -2993,7 +3000,7 @@
                 const dd = daysBetween(keyDate(key), keyDate(k));
                 (p.days[k].activeIssues || []).filter(ai => String(ai.issue || '').trim().toLowerCase() === title).forEach(ai => {
                     (ai.treatments || []).forEach(t => {
-                        if (parseCourse(t.text) && courseStrip(t.text) === strip) t.text = setCourseInText(t.text, day + dd, total);
+                        if (parseCourse(t.text) && courseStrip(t.text) === strip) t.text = setCourseInText(t.text, Math.min(total + 1, day + dd), total);
                     });
                 });
             });
@@ -3407,7 +3414,7 @@
 
         function issueLines(issue, n, dots = true) {
             const lines = [NL([NB(`[${n}] `), NB((issue.issue || '').trim() || 'Untitled')])];
-            (issue.treatments || []).filter(t => (t.text || '').trim()).forEach(t => lines.push(NTEXT('• ' + (dots ? withDot(t.text) : t.text.trim()))));
+            (issue.treatments || []).filter(t => (t.text || '').trim()).forEach(t => lines.push(NTEXT('• ' + (dots ? withDot(courseNoteText(t.text)) : courseNoteText(t.text).trim()))));
             return lines;
         }
 
@@ -9008,7 +9015,7 @@
             inkLastPinRect = pinRect;
             return key;
         }
-        let inkLastPinRect = null;
+        let inkLastPinRect = null, inkFlashTimer = null;
         function inkAbs(root, note, id) {
             const f = inkFind(note, id); if (!f) return null;
             const shown = inkCache.find(c => c.id === id && !c.thl);
@@ -9027,15 +9034,17 @@
         const INK_GROUP_MS = 1500, INK_GROUP_GAP = 80;
         let inkGroup = null; // { entry, ids: [], box: [x1,y1,x2,y2] (page), last }
         const inkBox = (pts) => { let b = [Infinity, Infinity, -Infinity, -Infinity]; pts.forEach(([x, y]) => { b = [Math.min(b[0], x), Math.min(b[1], y), Math.max(b[2], x), Math.max(b[3], y)]; }); return b; };
-        function inkNearGroup(box) {
+        // the clock runs from the moment the last stroke ended to the moment the next one starts (however long
+        // each stroke itself takes), and restarts with every stroke - so continuous writing stays one scribble
+        function inkNearGroup(box, startedAt = Date.now()) {
             const g = inkGroup;
-            return !!(g && g.entry === inkEntry() && Date.now() - g.last < INK_GROUP_MS &&
+            return !!(g && g.entry === inkEntry() && startedAt - g.last < INK_GROUP_MS &&
                 box[0] < g.box[2] + INK_GROUP_GAP && box[2] > g.box[0] - INK_GROUP_GAP && box[1] < g.box[3] + INK_GROUP_GAP && box[3] > g.box[1] - INK_GROUP_GAP);
         }
         function inkSave(root, d) {
             const entry = inkEntry(), now = Date.now();
             const box = inkBox(d.pts);
-            if (!inkNearGroup(box)) inkGroup = { entry, ids: [], box, last: now };
+            if (!inkNearGroup(box, d.t0 || now)) inkGroup = { entry, ids: [], box, last: now };
             else inkGroup.box = [Math.min(inkGroup.box[0], box[0]), Math.min(inkGroup.box[1], box[1]), Math.max(inkGroup.box[2], box[2]), Math.max(inkGroup.box[3], box[3])];
             inkGroup.last = now;
             const all = inkAll();
@@ -9052,9 +9061,13 @@
             items.push({ st: stroke, abs: prep.pts });
             inkLastPinRect = null;
             inkReanchor(root, note, items);
+            clearTimeout(inkFlashTimer);
             if (inkLastPinRect) {
-                const sig = Math.round(inkLastPinRect.left) + ',' + Math.round(inkLastPinRect.top);
-                if (inkGroup.pinSig !== sig) { inkGroup.pinSig = sig; inkFlashWord(inkLastPinRect); }
+                const pr = inkLastPinRect, px = pr.left + window.scrollX, py = pr.top + window.scrollY, g = inkGroup;
+                inkFlashTimer = setTimeout(() => {
+                    if (inkGroup !== g || inkDraw) return;
+                    inkFlashWord({ left: px - window.scrollX, top: py - window.scrollY, width: pr.width, height: pr.height });
+                }, INK_GROUP_MS + 100);
             }
             inkGroup.ids.push(id);
             inkSaveAll(all);
@@ -9336,13 +9349,14 @@
                 inkSel = null; inkLayout();
             }
             const kind = inkTool.mode === 'eraser' ? 'eraser' : inkTool.mode === 'lasso' ? 'lasso' : 'pen';
-            if (kind === 'pen' && inkNoInkZone(e.target)) {
+            if (kind === 'pen' && inkNoInkZone(e.target) && !inkNearGroup([p0[0], p0[1], p0[0], p0[1]])) {
                 // taps still work normally here (buttons, date…); only writing is refused
                 inkDraw = { kind: 'blocked', root, id: e.pointerId, start: [e.clientX, e.clientY], started: false };
                 inkExpand(); // the pen touched the screen: show the tools anyway
                 return;
             }
-            inkDraw = { kind, root, id: e.pointerId, start: [e.clientX, e.clientY], started: false, pts: [p0], prs: [e.pressure || 0.5],
+            if (kind === 'pen') clearTimeout(inkFlashTimer); // still writing: show the word only once the scribble is done
+            inkDraw = { kind, root, id: e.pointerId, t0: Date.now(), start: [e.clientX, e.clientY], started: false, pts: [p0], prs: [e.pressure || 0.5],
                 st: { c: inkTool.hl ? inkTool.hlColor : inkTool.color, hl: inkTool.hl } };
             if (kind === 'eraser') inkEraserCursor(e.clientX, e.clientY, true);
             inkExpand();
@@ -9421,7 +9435,7 @@
                     inkSel = ids.length ? { entry: inkEntry(), ids } : null;
                     if (!ids.length) showToast('Nothing selected - circle some ink');
                 }
-            } else if (d.kind === 'pen' && inkNearGroup(inkBox(d.pts))) {
+            } else if (d.kind === 'pen' && inkNearGroup(inkBox(d.pts), d.t0)) {
                 // a quick tap right by what you're writing (the dot on an i, a full stop) is a dot, not a tap -
                 // unless it lands on ink already there (the pencil bouncing as it lifts): then it's ignored
                 stopNextClick();
