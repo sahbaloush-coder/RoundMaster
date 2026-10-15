@@ -68,6 +68,11 @@
         .issues-plan-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
         .issues-plan-grid.ipg-stretch { align-items: stretch; }
         .ink-pad { flex: 1 1 0; min-height: 0; }
+        .list-bar.lt-icons button > span.hidden { display: none !important; }
+        /* folded Medical Background: as tall as the memo buttons beside it */
+        .mb-row.mb-fold { align-items: stretch; }
+        .mb-row.mb-fold > .flex-1 { display: flex; }
+        .mb-row.mb-fold > .flex-1 > div { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: center; }
         /* Side by side: landscape phones / tablets / desktops, and portrait iPad Air / Pro (≥ 800px wide).
            iPad mini (744px) stays stacked in portrait. html.is-land follows the DEVICE's orientation
            (set by script), so an on-screen keyboard never reshuffles the page. */
@@ -167,10 +172,11 @@
         .cp-num { width: 100%; text-align: center; padding: 0.35rem 0.25rem; border: 1px solid #e2e8f0; border-radius: 0.5rem; background: #f8fafc; font-weight: 600; font-size: 14px; }
 
 
-        /* Landscape phones / tablets: physicians on the left, patient cards on the right (as on a computer) */
+        /* Tablets (either way up) and landscape phones: physicians on the left, patient cards on the right.
+           Only a phone held upright stacks them. */
         @media (min-width: 640px) {
-            html.is-land .list-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-            html.is-land .list-main { grid-column: span 3 / span 3; }
+            html.is-land .list-grid, html:not(.is-phone) .list-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+            html.is-land .list-main, html:not(.is-phone) .list-main { grid-column: span 3 / span 3; }
             html.is-phone.is-land .list-grid { grid-template-columns: minmax(0, 2fr) minmax(0, 5fr); }
             html.is-phone.is-land .list-main { grid-column: auto; }
         }
@@ -187,7 +193,7 @@
 
         @keyframes pttPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-        html.dark #ink-overlay .ink-hl { filter: invert(1) hue-rotate(180deg); }
+        html.dark #ink-hl-layer { filter: invert(1) hue-rotate(180deg); }
         /* Date boxes: type the date, or tap the calendar button */
         .date-field { position: relative; display: inline-flex; align-items: center; gap: 0.4rem; }
         .date-field .date-field-text { background: transparent; border: 0; outline: none; padding: 0; margin: 0; font: inherit; color: inherit; width: 10.5ch; min-width: 0; }
@@ -375,7 +381,7 @@
 
         const STORAGE_PREFIX = 'roundmaster_';
         // Everything a backup carries: patients, lists, settings, physician colours, lab units/ranges, appearance.
-        const BACKUP_KEYS = ['settings', 'all_patients', 'daily_records', 'physician_colors_v2', 'physician_color_pins', 'lab_settings', 'theme', 'card_scale', 'text_scale', 'settings_closed', 'entry_split_v1'];
+        const BACKUP_KEYS = ['settings', 'all_patients', 'daily_records', 'list_ink', 'physician_colors_v2', 'physician_color_pins', 'lab_settings', 'theme', 'card_scale', 'text_scale', 'settings_closed', 'entry_split_v1'];
         let saveErrorShown = false;
 
         const Store = {
@@ -1079,6 +1085,7 @@
             refitTextareasSoon();
             layoutInvestigations();
             watchInvCards();
+            fitListBar(); requestAnimationFrame(fitListBar); setTimeout(fitListBar, 300);
             try { inkAnnotate(); inkLayoutSoon(); if (!inkRoot()) { const b = document.getElementById('ink-toolbar'); if (b) b.remove(); } else inkToolbarRender(); } catch (e) { console.error(e); }
             document.querySelectorAll('.inv-board img').forEach(img => { if (!img.complete) img.addEventListener('load', layoutInvestigations, { once: true }); });
             main.style.minHeight = '';
@@ -1185,7 +1192,7 @@
         }
 
         document.addEventListener('pointerdown', (e) => {
-            const handle = e.target.closest('.drag-handle');
+            const handle = e.target.closest ? e.target.closest('.drag-handle') : null;
             if (!handle || (e.pointerType === 'mouse' && e.button !== 0)) return;
             const item = handle.closest('[data-sort-item]');
             const list = item && item.closest('[data-sort-list]');
@@ -1918,6 +1925,14 @@
             renderApp();
         }
 
+        // List top bar: if the buttons can't share a line with the date, show them as icons only (as on a phone)
+        function fitListBar() {
+            const bar = document.querySelector('#main-view .list-bar');
+            if (!bar || bar.children.length < 2) return;
+            bar.classList.remove('lt-icons');
+            const [a, b] = bar.children;
+            if (b.offsetTop > a.offsetTop + 4) bar.classList.add('lt-icons');
+        }
         function renderInpatientView() { return renderListView('inpatient'); }
         function renderConsultView() { return renderListView('consult'); }
 
@@ -1939,7 +1954,7 @@
             return `
                 <div class="flex-1 flex flex-col space-y-4">
                     ${wardDatalist()}
-                    <div class="bg-white p-2 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-2 flex-wrap">
+                    <div class="list-bar bg-white p-2 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between gap-2 flex-wrap">
                         <div class="flex items-center gap-1 sm:gap-2">
                             <button onclick="changeDate(-1)" class="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600 transition" title="Previous day"><i class="fa-solid fa-chevron-left text-xs sm:text-sm"></i></button>
                             ${dateField(currentViewDate, 'updateViewDate(this.value)', { cls: `compact-date px-2 sm:px-3 py-1.5 sm:py-2 bg-slate-50 border border-slate-200 rounded-lg sm:rounded-xl font-semibold text-slate-700 text-[calc(13px*var(--ts,1))] sm:text-sm ${cfg.accentHover}` })}
@@ -1964,14 +1979,14 @@
                     <div class="list-grid grid grid-cols-1 lg:grid-cols-4 gap-4">
                         ${`
                             <div class="bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col ${physiciansCollapsed() ? '' : 'space-y-3'} self-start">
-                                <div class="flex items-center justify-between">
-                                    <button onclick="togglePhysiciansBox()" class="font-bold text-slate-800 text-sm flex items-center gap-2">
+                                <div class="flex items-center justify-between flex-wrap gap-x-2 gap-y-1.5">
+                                    <button onclick="togglePhysiciansBox()" class="font-bold text-slate-800 text-sm flex items-center gap-2 whitespace-nowrap">
                                         Physicians (${phys.length})
                                         <i class="fa-solid fa-chevron-${physiciansCollapsed() ? 'down' : 'up'} text-[calc(10px*var(--ts,1))] text-slate-400"></i>
                                     </button>
                                     <div class="flex items-center gap-1">
                                         <button onclick="refreshPhysiciansFromPatients('${type}')" class="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs transition" title="Update: keep only physicians assigned to patients"><i class="fa-solid fa-rotate"></i></button>
-                                        <button onclick="openAddPhysicianModal('${type}')" class="px-2 py-1 ${cfg.accentSoft} rounded-lg text-xs font-semibold transition"><i class="fa-solid fa-plus"></i> Add</button>
+                                        <button onclick="openAddPhysicianModal('${type}')" class="px-2 py-1 ${cfg.accentSoft} rounded-lg text-xs font-semibold transition whitespace-nowrap"><i class="fa-solid fa-plus"></i> Add</button>
                                     </div>
                                 </div>
                                 <div class="space-y-2 ${physiciansCollapsed() ? 'hidden' : ''}">
@@ -2439,7 +2454,7 @@
 
                         ${noNoteBanner}
 
-                        <div class="flex items-start gap-2 sm:gap-3">
+                        <div class="mb-row ${isMedicalBgCollapsed ? 'mb-fold' : ''} flex items-start gap-2 sm:gap-3">
                             <div class="flex-1 min-w-0">${renderMedBgBox(patient, pid)}</div>
                             ${(() => { const chips = renderMemoRow(rawPatient, note, pid, isConsult, patient.caseSummary, 'chips'); return chips ? `<div class="size-scale shrink-0 self-stretch flex flex-col items-stretch gap-1.5 sm:gap-2">${chips}${inkPad('mb')}</div>` : ''; })()}
                         </div>
@@ -2450,7 +2465,7 @@
                         <div class="issues-plan-grid ipg-stretch">
                             <div class="flex flex-col min-w-0">
                                 ${renderIssuesBox(note, settings, rawPatient.id, pid, isConsult)}
-                                ${inkPad('issues')}
+                                ${issuesFill(isConsult) ? '' : inkPad('issues')}
                             </div>
                             <div class="flex flex-col min-w-0">
                                 <div class="flex flex-col gap-4 min-w-0">
@@ -2702,7 +2717,6 @@
                             <i class="fa-solid fa-chevron-${isMedicalBgCollapsed ? 'down' : 'up'} text-xs text-slate-400"></i>
                         </div>
                         <div class="flex items-center gap-3">
-                            <span class="hidden sm:inline text-[calc(11px*var(--ts,1))] text-slate-400"><i class="fa-solid fa-circle-info"></i> Changes are applied here and forward only</span>
                         <button data-edit-trigger onclick="addMedicalBackground(${pid})" class="px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-xl text-xs font-semibold transition flex items-center gap-1.5"><i class="fa-solid fa-plus"></i> Add</button>
                         </div>
                     </div>
@@ -2850,7 +2864,7 @@
                 ? { box: 'bg-indigo-50 border-indigo-300', title: 'text-indigo-900', icon: 'fa-user-doctor', iconCls: 'text-indigo-500', btn: 'bg-indigo-600 hover:bg-indigo-700', grip: 'bg-indigo-100 text-indigo-400', edit: 'border-indigo-400', soft: 'hover:bg-indigo-50 border-indigo-200 text-indigo-600' }
                 : { box: 'bg-orange-50 border-orange-300', title: 'text-orange-900', icon: 'fa-bed-pulse', iconCls: 'text-orange-500', btn: 'bg-orange-600 hover:bg-orange-700', grip: 'bg-orange-100 text-orange-400', edit: 'border-orange-400', soft: 'hover:bg-orange-50 border-orange-200 text-orange-600' };
             return `
-                <div class="size-scale ${A.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
+                <div class="size-scale ${A.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0 ${issuesFill(isConsult) ? 'flex-1 flex flex-col justify-center' : ''}">
                     <div class="flex items-center justify-between ${coreCollapsed.issues ? '' : 'mb-2 sm:mb-3'}">
                         <button onclick="toggleCoreBox('issues')" class="text-left font-bold ${A.title} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${A.icon} ${A.iconCls}"></i> ${L.title}
                             <span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${issues.length})</span><i class="fa-solid fa-chevron-${coreCollapsed.issues ? 'down' : 'up'} text-xs opacity-50"></i></button>
@@ -2961,8 +2975,8 @@
                       box: 'bg-emerald-50 border-emerald-300', titleCls: 'text-emerald-900', iconCls: 'text-emerald-600', btn: 'bg-emerald-600 hover:bg-emerald-700',
                       item: 'border-emerald-200', edit: 'border-emerald-500', grip: 'bg-emerald-100 text-emerald-500', check: 'accent-emerald-600', emptyCls: 'text-emerald-700/60', ph: 'Plan item...' },
             dcplan: { key: 'dcPlan', title: 'Discharge Plan', icon: 'fa-house-medical', empty: 'No discharge plan yet.',
-                      box: 'bg-green-100/60 border-green-700/50', titleCls: 'text-green-950', iconCls: 'text-green-800', btn: 'bg-green-800 hover:bg-green-900',
-                      item: 'border-green-300', edit: 'border-green-700', grip: 'bg-green-200 text-green-700', check: 'accent-green-800', emptyCls: 'text-green-900/60', ph: 'Discharge plan item...' }
+                      box: 'bg-lime-50 border-lime-500', titleCls: 'text-lime-900', iconCls: 'text-lime-700', btn: 'bg-lime-700 hover:bg-lime-800',
+                      item: 'border-lime-300', edit: 'border-lime-600', grip: 'bg-lime-100 text-lime-700', check: 'accent-lime-700', emptyCls: 'text-lime-800/70', ph: 'Discharge plan item...' }
         };
         let dcPlanCollapsed = false;
         // Active Issues / Consult Details, Plan and the patient details bar: open unless you close them
@@ -2970,6 +2984,8 @@
         let coreCollapsed = { issues: false, plan: false, details: false, pads: false };
         // Hidden scribble spaces (only for pen ink): fill the empty room beside / under boxes; opened and
         // put away only by "Expand all" / "Collapse all".
+        // Folded record: Active Issues / Consult Details grows to the height of the folded Plan boxes beside it
+        const issuesFill = (isConsult) => coreCollapsed.issues && coreCollapsed.plan && (isConsult || dcPlanCollapsed);
         const inkPad = (id) => `<div class="ink-pad ${coreCollapsed.pads ? 'hidden' : ''}" data-ink="pad:${id}" data-ink-pad></div>`;
         function noteCoreChoice(item, closed) {
             if (!viewEntryKey) return;
@@ -8113,24 +8129,46 @@
              or the page), so it moves with that box. Ink is never cut off at a box's edge.
            - Saved with that day's entry only (not copied to the next day).
            ========================================================= */
-        const INK_COLORS = [['#101827', 'Black'], ['#751414', 'Red'], ['#03246b', 'Blue'], ['#125c1a', 'Green']];
-        const INK_HL = '#fff200';
-        const PEN_W = 4, HL_W = 16;     // one pen size (pressure makes it thinner / thicker); highlighter width
-        let inkTool = { color: '#101827', hl: false, mode: 'pen' }; // mode: pen | eraser | lasso
+        const INK_COLORS = [['#101827', 'Black'], ['#a81d1d', 'Red'], ['#1443ab', 'Blue'], ['#147f32', 'Green'], ['#ff00e6', 'Magenta']];
+        const INK_HLS = [['#fff200', 'Yellow'], ['#22e6ff', 'Cyan'], ['#8cff32', 'Green'], ['#ff5ce1', 'Magenta']];
+        const PEN_W = 4.6, HL_W = 19;     // one pen size (pressure makes it thinner / thicker); highlighter width
+        let inkTool = { color: '#101827', hlColor: '#fff200', hl: false, mode: 'pen' }; // mode: pen | eraser | lasso
+        let inkMenu = null;            // open colour list under the pen / highlighter button
         let inkDraw = null;            // the stroke / lasso / move in progress
         let inkUndo = [];              // [{ entry, id }]
         let inkCache = [];             // rendered strokes in page coordinates (eraser, lasso)
         let inkSel = null;             // lasso selection { entry, ids: [], box: [x1,y1,x2,y2] }
         let inkHideTimer = null, inkExpanded = false;
         const INK_HIDE_MS = 3000;
-        function inkRoot() { return currentRoute === 'patient_file' ? document.querySelector('#main-view > [data-ink="page"]') : null; }
+        const inkIsList = () => currentRoute === 'inpatient' || currentRoute === 'consult';
+        function inkRoot() { return currentRoute === 'patient_file' || inkIsList() ? document.querySelector('#main-view > [data-ink="page"]') : null; }
+        // Where ink lives: a patient's day note, or (on the Inpatient / Consult list) the list for that day
+        const inkListKey = () => currentRoute + '|' + currentViewDate;
+        function inkAll() { return inkIsList() ? Store.get('list_ink', {}) : Store.getPatients(); }
+        function inkSaveAll(all) {
+            if (!inkIsList()) return Store.savePatients(all);
+            Object.keys(all).forEach(k => { if (!all[k] || !all[k].ink || !Object.keys(all[k].ink).length) delete all[k]; });
+            const keys = Object.keys(all).sort((a, b) => a.split('|')[1] < b.split('|')[1] ? -1 : 1);
+            if (keys.length > 60) keys.slice(0, keys.length - 60).forEach(k => delete all[k]); // daily scribbles: keep it small
+            Store.set('list_ink', all);
+        }
         // Name the boxes ink can attach to (done after every redraw)
         function inkAnnotate() {
             const main = document.getElementById('main-view');
             const root = main && main.firstElementChild;
-            if (!root || currentRoute !== 'patient_file') return;
+            if (!root || (currentRoute !== 'patient_file' && !inkIsList())) return;
             root.setAttribute('data-ink', 'page');
             if (getComputedStyle(root).position === 'static') root.style.position = 'relative';
+            if (inkIsList()) {
+                const setL = (el, id) => { if (el && !el.hasAttribute('data-ink')) el.setAttribute('data-ink', id); };
+                root.querySelectorAll('.list-main [data-sort-list] > [data-sort-item]').forEach(el => setL(el, 'pt:' + el.dataset.id));
+                const phys = root.querySelector('button[onclick="togglePhysiciansBox()"]');
+                setL(phys && phys.closest('.rounded-2xl'), 'box:phys');
+                setL(root.querySelector('.list-main'), 'box:list');
+                const physFold = phys && phys.querySelector('.fa-chevron-down');
+                const pb = root.querySelector('[data-ink="box:phys"]'); if (pb) pb.toggleAttribute('data-ink-fold', !!physFold);
+                return;
+            }
             const box = (el) => el && el.closest('.rounded-2xl, .rounded-3xl');
             const set = (el, id) => { if (el && !el.hasAttribute('data-ink')) el.setAttribute('data-ink', id); };
             root.querySelectorAll('[data-sort-list="issues"] > [data-sort-item]').forEach(el => set(el, 'issue:' + el.dataset.id));
@@ -8153,8 +8191,11 @@
             root.querySelectorAll('[data-ink]').forEach(el => { if (el !== root) el.toggleAttribute('data-ink-fold', !!folded(el.getAttribute('data-ink'))); });
         }
         const inkFolded = (a) => !!(a.closest && a.closest('[data-ink-fold]'));
-        function inkNote(all) { return all ? dayNoteFor(all, activePatientId) : (() => { const p = Store.getPatients().find(x => x.id === activePatientId); return p && getDayNote(p, curKey()); })(); }
-        const inkEntry = () => activePatientId + '|' + curKey();
+        function inkNote(all) {
+            if (inkIsList()) { const k = inkListKey(); return all ? (all[k] = all[k] || {}) : (Store.get('list_ink', {})[k] || null); }
+            return all ? dayNoteFor(all, activePatientId) : (() => { const p = Store.getPatients().find(x => x.id === activePatientId); return p && getDayNote(p, curKey()); })();
+        }
+        const inkEntry = () => inkIsList() ? 'list|' + inkListKey() : activePatientId + '|' + curKey();
         // Ink layer: on top of the page, outside the scaled app area, in plain screen units.
         function inkOverlay(create) {
             let ov = document.getElementById('ink-overlay');
@@ -8166,6 +8207,21 @@
                 document.body.appendChild(ov);
             }
             return ov;
+        }
+        // Highlighter: its own layer that is multiplied with the page, so typed text and pen ink stay crisp
+        // on top of it; drawn as one see-through sheet, so crossing strokes don't build up darker.
+        const INK_HL_OPACITY = 0.8;
+        function inkHlLayer(create) {
+            let hl = document.getElementById('ink-hl-layer');
+            if (!hl && create) {
+                hl = document.createElement('div');
+                hl.id = 'ink-hl-layer';
+                hl.style.cssText = 'position:absolute;left:0;top:0;width:0;height:0;overflow:visible;pointer-events:none;z-index:19;mix-blend-mode:multiply';
+                hl.innerHTML = `<svg class="ink-saved" style="position:absolute;left:0;top:0;overflow:visible" width="1" height="1"></svg><svg class="ink-live" style="position:absolute;left:0;top:0;overflow:visible;opacity:${INK_HL_OPACITY}" width="1" height="1"></svg>`;
+                const ov = document.getElementById('ink-overlay');
+                document.body.insertBefore(hl, ov || null);
+            }
+            return hl;
         }
         const pageXY = (cx, cy) => [cx + window.scrollX, cy + window.scrollY];
         const f1 = (n) => (Math.round(n * 10) / 10).toString();
@@ -8201,7 +8257,7 @@
             const curve = (arr) => { let d = ''; for (let i = 1; i < arr.length - 1; i++) d += `Q${f1(arr[i][0])} ${f1(arr[i][1])} ${f1((arr[i][0] + arr[i + 1][0]) / 2)} ${f1((arr[i][1] + arr[i + 1][1]) / 2)}`; return d + `L${f1(arr[arr.length - 1][0])} ${f1(arr[arr.length - 1][1])}`; };
             const Rr = R.slice().reverse();
             const re = ws[n - 1] / 2, rs = ws[0] / 2;
-            return `<path d="M${f1(L[0][0])} ${f1(L[0][1])}${curve(L)}A${f1(re)} ${f1(re)} 0 0 1 ${f1(Rr[0][0])} ${f1(Rr[0][1])}${curve(Rr)}A${f1(rs)} ${f1(rs)} 0 0 1 ${f1(L[0][0])} ${f1(L[0][1])}Z"/>`;
+            return `<path d="M${f1(L[0][0])} ${f1(L[0][1])}${curve(L)}A${f1(re)} ${f1(re)} 0 0 0 ${f1(Rr[0][0])} ${f1(Rr[0][1])}${curve(Rr)}A${f1(rs)} ${f1(rs)} 0 0 0 ${f1(L[0][0])} ${f1(L[0][1])}Z"/>`;
         }
         function inkHlPath(rawPts, sc = 1) {
             const pts = inkSmooth(rawPts);
@@ -8213,7 +8269,7 @@
         }
         function inkStrokeSvg(pts, prs, st, sc = 1) {
             if (!pts.length) return '';
-            return st.hl ? `<g class="ink-hl" stroke="${st.c}" stroke-opacity="0.45">${inkHlPath(pts, sc)}</g>`
+            return st.hl ? `<g class="ink-hl" stroke="${st.c}">${inkHlPath(pts, sc)}</g>`
                          : `<g fill="${st.c}">${inkPenPath(pts, prs, sc)}</g>`;
         }
         let inkRaf = 0;
@@ -8223,20 +8279,20 @@
             const root = inkRoot();
             inkCache = [];
             const ov = inkOverlay(false);
-            if (!root) { if (ov) ov.remove(); inkSel = null; return; }
+            if (!root) { if (ov) ov.remove(); const hlL = inkHlLayer(false); if (hlL) hlL.remove(); inkSel = null; return; }
             const note = inkNote();
             const ink = (note && note.ink) || {};
             // every stroke gets an id (older strokes didn't have one)
             let needIds = false;
             Object.values(ink).forEach(list => list.forEach(st => { if (!st.id) needIds = true; }));
             if (needIds) {
-                const all = Store.getPatients(), n2 = inkNote(all);
+                const all = inkAll(), n2 = inkNote(all);
                 Object.values(n2.ink || {}).forEach(list => list.forEach(st => { if (!st.id) st.id = 's' + Math.random().toString(36).slice(2, 10); }));
-                Store.savePatients(all);
+                inkSaveAll(all);
                 return inkLayout(move);
             }
             const keys = Object.keys(ink).filter(k => (ink[k] || []).length);
-            if (!keys.length && !inkDraw && !inkSel) { if (ov) ov.querySelector('.ink-saved').innerHTML = ''; return; }
+            if (!keys.length && !inkDraw && !inkSel) { if (ov) ov.querySelector('.ink-saved').innerHTML = ''; const hlL = inkHlLayer(false); if (hlL) hlL.querySelector('.ink-saved').innerHTML = ''; return; }
             const svg = inkOverlay(true).querySelector('.ink-saved');
             let hl = '', pen = '';
             keys.forEach(key => {
@@ -8265,7 +8321,8 @@
                 const b = inkSelBox(move);
                 if (b) selHtml = `<rect x="${f1(b[0] - 6)}" y="${f1(b[1] - 6)}" width="${f1(b[2] - b[0] + 12)}" height="${f1(b[3] - b[1] + 12)}" rx="6" fill="rgba(122,4,16,0.05)" stroke="#7a0410" stroke-width="1.5" stroke-dasharray="6 4"/>`;
             }
-            svg.innerHTML = hl + pen + selHtml; // highlighter under the pen ink
+            svg.innerHTML = pen + selHtml;
+            inkHlLayer(true).querySelector('.ink-saved').innerHTML = hl ? `<g opacity="${INK_HL_OPACITY}">${hl}</g>` : '';
             inkSelControls(move);
         }
         function inkSelBox(move) {
@@ -8363,7 +8420,7 @@
             if (!inkNearGroup(box)) inkGroup = { entry, ids: [], box, last: now };
             else inkGroup.box = [Math.min(inkGroup.box[0], box[0]), Math.min(inkGroup.box[1], box[1]), Math.max(inkGroup.box[2], box[2]), Math.max(inkGroup.box[3], box[3])];
             inkGroup.last = now;
-            const all = Store.getPatients();
+            const all = inkAll();
             const note = inkNote(all);
             if (!note) return;
             if (!note.ink) note.ink = {};
@@ -8376,7 +8433,7 @@
             items.push({ st: stroke, abs: d.pts.map(p => p.slice()) });
             inkReanchor(root, note, items);
             inkGroup.ids.push(id);
-            Store.savePatients(all);
+            inkSaveAll(all);
             inkUndo.push({ entry, id });
         }
         function inkEraseAt(x, y) {
@@ -8388,11 +8445,11 @@
                 return Math.sqrt(ex * ex + ey * ey) <= c.w / 2 + 12;
             }));
             if (!hit.length) return;
-            const all = Store.getPatients();
+            const all = inkAll();
             const note = inkNote(all);
             if (!note || !note.ink) return;
             hit.forEach(h => { const f = inkFind(note, h.id); if (f) { note.ink[f.k].splice(f.i, 1); if (!note.ink[f.k].length) delete note.ink[f.k]; } });
-            Store.savePatients(all);
+            inkSaveAll(all);
             inkLayout();
         }
         function inkUndoLast() {
@@ -8401,13 +8458,13 @@
                 const u = inkUndo[i];
                 if (u.entry !== entry) continue;
                 inkUndo.splice(i, 1);
-                const all = Store.getPatients();
+                const all = inkAll();
                 const note = inkNote(all);
                 const f = note && inkFind(note, u.id);
                 if (!f) continue; // already erased: undo the one before
                 note.ink[f.k].splice(f.i, 1);
                 if (!note.ink[f.k].length) delete note.ink[f.k];
-                Store.savePatients(all);
+                inkSaveAll(all);
                 inkLayout();
                 return;
             }
@@ -8415,10 +8472,10 @@
         }
         function inkDeleteSelection() {
             if (!inkSel) return;
-            const all = Store.getPatients();
+            const all = inkAll();
             const note = inkNote(all);
             inkSel.ids.forEach(id => { const f = note && inkFind(note, id); if (f) { note.ink[f.k].splice(f.i, 1); if (!note.ink[f.k].length) delete note.ink[f.k]; } });
-            Store.savePatients(all);
+            inkSaveAll(all);
             inkSel = null;
             inkLayout();
         }
@@ -8426,9 +8483,9 @@
         function inkClearAll() {
             if (!inkClearArmed) { inkClearArmed = true; showToast('Tap clear again to remove all ink on this entry'); inkToolbarRender(); setTimeout(() => { inkClearArmed = false; inkToolbarRender(); }, 3000); return; }
             inkClearArmed = false;
-            const all = Store.getPatients();
+            const all = inkAll();
             const note = inkNote(all);
-            if (note && note.ink) { delete note.ink; Store.savePatients(all); }
+            if (note && note.ink) { delete note.ink; inkSaveAll(all); }
             inkSel = null;
             inkLayout(); inkToolbarRender();
         }
@@ -8452,10 +8509,16 @@
                     const act = b.getAttribute('data-act');
                     if (act === 'undo') inkUndoLast();
                     else if (act === 'clear') inkClearAll();
-                    else if (act === 'eraser') inkSet({ mode: inkTool.mode === 'eraser' ? 'pen' : 'eraser' });
-                    else if (act === 'lasso') { inkSel = null; inkSet({ mode: inkTool.mode === 'lasso' ? 'pen' : 'lasso' }); inkLayout(); }
-                    else if (act === 'hl') inkSet({ hl: true, mode: 'pen' });
-                    else if (act.startsWith('c:')) inkSet({ color: act.slice(2), hl: false, mode: 'pen' });
+                    else if (act === 'eraser') (inkMenu = null, inkSet({ mode: inkTool.mode === 'eraser' ? 'pen' : 'eraser' }));
+                    else if (act === 'lasso') { inkSel = null; inkMenu = null; inkSet({ mode: inkTool.mode === 'lasso' ? 'pen' : 'lasso' }); inkLayout(); }
+                    else if (act === 'pen' || act === 'hl') {
+                        const want = act === 'hl';
+                        const already = inkTool.mode === 'pen' && inkTool.hl === want;
+                        inkMenu = already && inkMenu === act ? null : act; // tap again to close the list
+                        inkSet({ hl: want, mode: 'pen' });
+                    }
+                    else if (act.startsWith('c:')) { inkMenu = null; inkSet({ color: act.slice(2), hl: false, mode: 'pen' }); }
+                    else if (act.startsWith('h:')) { inkMenu = null; inkSet({ hlColor: act.slice(2), hl: true, mode: 'pen' }); }
                 });
                 bar.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); });
                 document.body.appendChild(bar);
@@ -8466,8 +8529,15 @@
             const dot = (act, c, title, active, icon, iconColor) => `<button data-act="${act}" title="${title}" style="width:30px;height:30px;border-radius:50%;background:${c};border:1px solid rgba(0,0,0,.15);display:flex;align-items:center;justify-content:center;${active ? ring : ''}"><i class="fa-solid ${icon}" style="font-size:11px;color:${iconColor};pointer-events:none"></i></button>`;
             const btn = (act, icon, title, active) => `<button data-act="${act}" title="${title}" style="width:34px;height:32px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:14px;color:${active ? '#fff' : '#475569'};background:${active ? '#7a0410' : '#f1f5f9'}"><i class="fa-solid ${icon}" style="pointer-events:none"></i></button>`;
             const pen = t.mode === 'pen';
-            bar.innerHTML = INK_COLORS.map(([c, n]) => dot('c:' + c, c, n + ' pen', pen && !t.hl && t.color === c, 'fa-pen', '#fff')).join('')
-                + dot('hl', INK_HL, 'Highlighter', pen && t.hl, 'fa-highlighter', '#5b4a00')
+            const caret = (open) => `<i class="fa-solid fa-caret-${open ? 'up' : 'down'}" style="font-size:10px;color:#64748b;pointer-events:none"></i>`;
+            const toolBtn = (act, c, icon, iconColor, title, active) => `<button data-act="${act}" title="${title}" style="height:34px;padding:0 8px 0 3px;border-radius:17px;display:flex;align-items:center;gap:4px;background:${active ? '#f1f5f9' : 'transparent'};${active ? 'box-shadow:inset 0 0 0 2px #7a0410' : ''}">
+                    <span style="width:28px;height:28px;border-radius:50%;background:${c};border:1px solid rgba(0,0,0,.15);display:flex;align-items:center;justify-content:center;pointer-events:none"><i class="fa-solid ${icon}" style="font-size:11px;color:${iconColor}"></i></span>${caret(inkMenu === act)}</button>`;
+            const menu = (act, list, pre, cur, icon, iconColor) => inkMenu !== act ? '' : `<div style="position:absolute;top:calc(100% + 10px);left:0;display:flex;flex-direction:column;gap:6px;padding:6px;border-radius:16px;background:rgba(255,255,255,0.98);box-shadow:0 8px 24px rgba(15,23,42,0.22);border:1px solid #e2e8f0">
+                    ${list.map(([c, n]) => `<button data-act="${pre}${c}" title="${n}" style="width:30px;height:30px;border-radius:50%;background:${c};border:1px solid rgba(0,0,0,.15);display:flex;align-items:center;justify-content:center;${c === cur ? 'box-shadow:0 0 0 2px #fff,0 0 0 4px #7a0410' : ''}"><i class="fa-solid ${icon}" style="font-size:11px;color:${iconColor};pointer-events:none"></i></button>`).join('')}</div>`;
+            bar.style.overflow = 'visible';
+            const wrap = (h) => `<span style="position:relative;display:flex">${h}</span>`;
+            bar.innerHTML = wrap(toolBtn('pen', t.color, 'fa-pen', '#fff', 'Pen - tap for colours', pen && !t.hl) + menu('pen', INK_COLORS, 'c:', pen && !t.hl ? t.color : null, 'fa-pen', '#fff'))
+                + wrap(toolBtn('hl', t.hlColor, 'fa-highlighter', 'rgba(0,0,0,.55)', 'Highlighter - tap for colours', pen && t.hl) + menu('hl', INK_HLS, 'h:', pen && t.hl ? t.hlColor : null, 'fa-highlighter', 'rgba(0,0,0,.55)'))
                 + '<span style="width:1px;height:22px;background:#e2e8f0;margin:0 2px"></span>'
                 + btn('eraser', 'fa-eraser', 'Eraser', t.mode === 'eraser')
                 + btn('lasso', 'fa-draw-polygon', 'Lasso: circle ink to select it, then drag it', t.mode === 'lasso')
@@ -8483,7 +8553,7 @@
             clearTimeout(inkHideTimer);
             inkHideTimer = setTimeout(() => {
                 if (inkDraw || inkSel || (bar.isConnected && bar.matches(':hover'))) return inkShowToolbar();
-                inkExpanded = false; inkToolbarRender();
+                inkExpanded = false; inkMenu = null; inkToolbarRender();
             }, INK_HIDE_MS);
         }
         function inkToolbar() { inkShowToolbar(); }
@@ -8516,7 +8586,8 @@
                 const live = inkOverlay(true).querySelector('.ink-live');
                 if (d.kind === 'lasso') {
                     live.innerHTML = `<polyline points="${d.pts.map(p => f1(p[0]) + ',' + f1(p[1])).join(' ')}" fill="rgba(122,4,16,0.06)" stroke="#7a0410" stroke-width="1.5" stroke-dasharray="5 4"/>`;
-                } else if (d.kind === 'pen') live.innerHTML = inkStrokeSvg(d.pts, d.prs, d.st);
+                } else if (d.kind === 'pen' && d.st.hl) inkHlLayer(true).querySelector('.ink-live').innerHTML = inkStrokeSvg(d.pts, d.prs, d.st);
+                else if (d.kind === 'pen') live.innerHTML = inkStrokeSvg(d.pts, d.prs, d.st);
             });
         }
         const inside = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
@@ -8536,7 +8607,7 @@
             }
             const kind = inkTool.mode === 'eraser' ? 'eraser' : inkTool.mode === 'lasso' ? 'lasso' : 'pen';
             inkDraw = { kind, root, id: e.pointerId, start: [e.clientX, e.clientY], started: false, pts: [p0], prs: [e.pressure || 0.5],
-                st: { c: inkTool.hl ? INK_HL : inkTool.color, hl: inkTool.hl } };
+                st: { c: inkTool.hl ? inkTool.hlColor : inkTool.color, hl: inkTool.hl } };
             if (kind === 'eraser') inkEraserCursor(e.clientX, e.clientY, true);
             inkExpand();
         }, true);
@@ -8581,15 +8652,16 @@
             cancelAnimationFrame(inkLiveRaf);
             const ov = inkOverlay(false);
             if (ov) ov.querySelector('.ink-live').innerHTML = '';
+            const hlL = inkHlLayer(false); if (hlL) hlL.querySelector('.ink-live').innerHTML = '';
             if (d.kind === 'eraser') inkEraserCursor(0, 0, e.pointerType === 'pen' && e.type !== 'pointercancel');
             if (d.kind === 'move') {
                 if (d.started && inkSel) {
                     // drop: the selected ink is re-attached to the box it now sits on
-                    const all = Store.getPatients();
+                    const all = inkAll();
                     const note = inkNote(all);
                     const items = inkSel.ids.map(id => inkAbs(d.root, note, id)).filter(Boolean)
                         .map(it => ({ ...it, abs: it.abs.map(([x, y]) => [x + d.dx, y + d.dy]) }));
-                    if (items.length) { inkReanchor(d.root, note, items); Store.savePatients(all); }
+                    if (items.length) { inkReanchor(d.root, note, items); inkSaveAll(all); }
                 }
                 stopNextClick();
                 inkLayout(); inkShowToolbar();
@@ -8623,6 +8695,7 @@
         }, { passive: false });
         document.addEventListener('selectstart', (e) => { if (inkDraw && inkDraw.started) e.preventDefault(); }, true);
         window.addEventListener('resize', inkLayoutSoon);
+        window.addEventListener('resize', () => requestAnimationFrame(fitListBar));
         try { new ResizeObserver(() => inkLayoutSoon()).observe(document.getElementById('main-view')); } catch (e) {}
 
         window.onload = function() {
