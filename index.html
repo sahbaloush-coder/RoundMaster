@@ -3251,7 +3251,7 @@
                         <div class="flex justify-center pt-3">
                             ${dc ? (dc.to === 'toc' ? `
                                 <button onclick="reverseDischarge(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-teal-600 hover:bg-teal-700 text-white shadow-sm" title="Tap to reverse the transfer of care">
-                                    <i class="fa-solid fa-circle-check"></i> Transferred · TOC
+                                    <i class="fa-solid fa-circle-check"></i> TOC Acptd
                                 </button>` : `
                                 <button onclick="reverseDischarge(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm" title="Tap to reverse the sign-off">
                                     <i class="fa-solid fa-circle-check"></i> Signed off
@@ -4100,6 +4100,18 @@
         }
         /* Transfer of care (consult -> our inpatient list): the patient goes on today's inpatient list with
            this consult's entry and the TOC tag, and is not carried to tomorrow's consult list. Reversible. */
+        // A consult entry taken over as one of our inpatients: consult details become active issues (same items),
+        // the impression moves into the case summary, the primary team goes, and the physician is left for you to fill in.
+        function tocConvert(p, iKey, physician = '') {
+            const inf = p.dayInfo[iKey], note = p.days && p.days[iKey];
+            if (note && String(note.impression || '').trim()) {
+                const imp = String(note.impression).trim(), cs = String(inf.caseSummary || '').trim();
+                if (!cs.includes(imp)) inf.caseSummary = cs ? cs + '\n\n' + imp : imp;
+                delete note.impression;
+            }
+            inf.physician = physician || '';
+            inf.consultant = '';
+        }
         function openTocConfirm(patientId) {
             const p = Store.getPatients().find(x => x.id === patientId);
             showConfirm({
@@ -4122,8 +4134,8 @@
             mergeEntry(p, cKey, iKey);
             const inf = p.dayInfo[iKey];
             const tag = tocTagName();
-            if (created) { inf.tags = [tag]; inf.physician = srcInfo.consultant || ''; inf.consultant = ''; }
-            else if (!(inf.tags || []).includes(tag)) inf.tags = [...(inf.tags || []), tag];
+            if (created) { inf.tags = [tag]; tocConvert(p, iKey, ''); }
+            else { if (!(inf.tags || []).includes(tag)) inf.tags = [...(inf.tags || []), tag]; if (p.days[iKey]) tocConvert(p, iKey, inf.physician); }
             if (!wasListed) day.inpatientIds.push(patientId);
             const rec = { to: 'toc', at: Date.now(), prevGoc: null, skipTomorrow: true, removedTomorrow: null, postDc: null, toc: { date: currentViewDate, wasListed, created } };
             const tomorrow = addDays(currentViewDate, 1), tday = records[tomorrow];
@@ -6914,7 +6926,7 @@
                         ? `<div class="mt-2 text-emerald-800/80">Not a ${what}: added as usual. <button onclick="answerReadmit(null)" class="underline">Change</button></div>`
                         : askBox(`<div><i class="fa-solid fa-circle-question"></i> <strong>Is this a ${what}?</strong> Their last ${isC ? '' : 'inpatient '}encounter: <strong>${esc(encounterLabel(lastKey))}</strong>.</div>${askBtns('answerReadmit', 'Yes, bring their last entry')}`);
                 box.className = 'rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900';
-                box.innerHTML = `<i class="fa-solid fa-link"></i> Using <strong>${esc(match.name)}</strong>'s record: name, gender, date of birth, goals of care and ${info.medicalBackground.length} medical background item${info.medicalBackground.length === 1 ? '' : 's'} are brought in. Fill in this entry's location, date and physician / primary team. <button onclick="answerMrnMatch('no')" class="underline ml-1">Undo</button>${tocQ}${reQ}`;
+                box.innerHTML = `<i class="fa-solid fa-link"></i> Using <strong>${esc(match.name)}</strong>'s last available record. Updating current care information required. <button onclick="answerMrnMatch('no')" class="underline ml-1">Undo</button>${tocQ}${reQ}`;
                 return;
             }
             if (mrnLink.decided === 'no') {
@@ -7011,7 +7023,7 @@
                 mergeEntry(p, lastKey, key);
                 p.dayInfo[key].tags = [copy.tag]; // old day-to-day tags don't carry over; the readmission / TOC tag does
                 // from a consult to our own list: our physician was the consultant (the consult's "physician" is the primary team)
-                if (copy.toc) { p.dayInfo[key].physician = fields.info.physician || srcInfo.consultant || ''; p.dayInfo[key].consultant = ''; }
+                if (copy.toc) tocConvert(p, key, fields.info.physician);
             }
             list.push(patientId);
             Store.savePatients(allPatients);
