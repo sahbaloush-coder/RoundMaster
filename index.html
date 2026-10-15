@@ -364,7 +364,10 @@
                 { id: 't4', name: 'Post ICU', color: '#0797a2', fontColor: '#ffffff' },
                 { id: 't5', name: 'Sick', color: '#fca5a5', fontColor: '#7f1d1d' },
                 { id: 't6', name: 'Endorse', color: '#c800ff', fontColor: '#ffffff' },
-                { id: 't7', name: '✓ Done', color: '#06601d', fontColor: '#ffffff' }
+                { id: 't7', name: '✓ Done', color: '#06601d', fontColor: '#ffffff' },
+                { id: 't8', name: 'ReAdm', color: '#ea580c', fontColor: '#ffffff' },
+                { id: 't9', name: 'ReCnslt', color: '#4f46e5', fontColor: '#ffffff' },
+                { id: 't10', name: 'TOC', color: '#0d9488', fontColor: '#ffffff' }
             ],
             // Automatic tags (Settings → Tags): which tag each rule adds
             autoTags: { endorse: 't6', done: 't7' },
@@ -503,6 +506,21 @@
             getSettings() {
                 const st = this.get('settings', DEFAULT_SETTINGS);
                 if (st && !st.autoTags) st.autoTags = guessAutoTags(st.tags || []);
+                // Readmission / reconsult tags: added once to existing settings (you can rename or recolour them)
+                if (st && !st.reTagsAdded) {
+                    st.tags = st.tags || [];
+                    const has = (n) => st.tags.some(t => String(t.name).toLowerCase() === n.toLowerCase());
+                    if (!has('ReAdm')) st.tags.push({ id: 't_readm', name: 'ReAdm', color: '#ea580c', fontColor: '#ffffff' });
+                    if (!has('ReCnslt')) st.tags.push({ id: 't_recnslt', name: 'ReCnslt', color: '#4f46e5', fontColor: '#ffffff' });
+                    st.reTagsAdded = true;
+                    this.set('settings', st);
+                }
+                if (st && !st.tocTagAdded) {
+                    st.tags = st.tags || [];
+                    if (!st.tags.some(t => String(t.name).toLowerCase().replace(/[^a-z]/g, '') === 'toc')) st.tags.push({ id: 't_toc', name: 'TOC', color: '#0d9488', fontColor: '#ffffff' });
+                    st.tocTagAdded = true;
+                    this.set('settings', st);
+                }
                 return st;
             },
             saveSettings(settings) {
@@ -3185,7 +3203,7 @@
             const titleHtml = `<h3 class="font-bold ${K.titleCls} text-[calc(14px*var(--ts,1))] sm:text-[calc(17px*var(--ts,1))] flex items-center gap-2"><i class="fa-solid ${K.icon} ${K.iconCls}"></i> ${K.title}
                 <span class="text-[calc(11px*var(--ts,1))] font-semibold opacity-50">(${plan.length})</span><i class="fa-solid fa-chevron-${collapsed ? 'down' : 'up'} text-xs opacity-50"></i>
                 ${isDc && dc && collapsed ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold ${dc.to === 'expired' ? 'bg-red-800 text-white' : 'bg-green-800 text-white'}">${dc.to === 'expired' ? 'Expired' : 'Discharged'}</span>` : ''}
-                ${isSignOff && dc && collapsed ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-emerald-700 text-white">Signed off</span>` : ''}</h3>`;
+                ${isSignOff && dc && collapsed ? (dc.to === 'toc' ? `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-teal-600 text-white">TOC</span>` : `<span class="ml-1 px-2 py-0.5 rounded-md text-[calc(10px*var(--ts,1))] font-bold bg-emerald-700 text-white">Signed off</span>`) : ''}</h3>`;
             return `
                 <div class="size-scale ${K.box} p-2.5 sm:p-4 rounded-2xl border-2 shadow-sm min-w-0">
                     <div data-fit class="flex items-center justify-between gap-2 whitespace-nowrap ${collapsed ? '' : 'mb-2 sm:mb-3'}">
@@ -3231,13 +3249,21 @@
                         </div>` : ''}
                     ${isSignOff ? `
                         <div class="flex justify-center pt-3">
-                            ${dc ? `
+                            ${dc ? (dc.to === 'toc' ? `
+                                <button onclick="reverseDischarge(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-teal-600 hover:bg-teal-700 text-white shadow-sm" title="Tap to reverse the transfer of care">
+                                    <i class="fa-solid fa-circle-check"></i> Transferred · TOC
+                                </button>` : `
                                 <button onclick="reverseDischarge(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-emerald-700 hover:bg-emerald-800 text-white shadow-sm" title="Tap to reverse the sign-off">
                                     <i class="fa-solid fa-circle-check"></i> Signed off
-                                </button>` : `
+                                </button>`) : `
+                                <div class="flex gap-2 flex-wrap justify-center">
                                 <button onclick="openDischargeModal(${pid}, true)" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-white hover:bg-emerald-50 text-emerald-800 border-2 border-emerald-600 shadow-sm">
                                     <i class="fa-solid fa-hand-point-right"></i> Sign off
-                                </button>`}
+                                </button>
+                                <button onclick="openTocConfirm(${pid})" class="px-5 py-2 rounded-xl text-sm font-bold flex items-center gap-2 transition bg-white hover:bg-teal-50 text-teal-800 border-2 border-teal-600 shadow-sm" title="Accepted for transfer of care to the inpatient list">
+                                    <i class="fa-solid fa-right-left"></i> TOC
+                                </button>
+                                </div>`}
                         </div>` : ''}
                     </div>
                 </div>
@@ -3530,7 +3556,7 @@
                 L.push(NL([NT('RECOMMENDATIONS as discussed with Dr. '), MRP()], H));
                 bulletLines(note.plan);
                 blank();
-                L.push(NTEXT(note.discharge && note.discharge.to === 'signoff' ? 'We will sign off.' : 'We will follow.'));
+                L.push(NTEXT(note.discharge && note.discharge.to === 'signoff' ? 'We will sign off.' : note.discharge && note.discharge.to === 'toc' ? 'Accepted for transfer of care.' : 'We will follow.'));
             }
             return L;
         }
@@ -4072,12 +4098,51 @@
             renderApp();
             showToast(d.to === 'signoff' ? 'Signed off' : d.to === 'expired' ? 'Marked as expired' : 'Discharged home');
         }
+        /* Transfer of care (consult -> our inpatient list): the patient goes on today's inpatient list with
+           this consult's entry and the TOC tag, and is not carried to tomorrow's consult list. Reversible. */
+        function openTocConfirm(patientId) {
+            const p = Store.getPatients().find(x => x.id === patientId);
+            showConfirm({
+                title: 'Transfer of care',
+                messageHtml: `Is <strong>${esc(p ? p.name : '')}</strong> accepted for transfer of care? They'll be added to today's inpatient list with the <strong>${esc(tocTagName())}</strong> tag, and taken off tomorrow's consult list.`,
+                confirmLabel: 'Yes, accepted',
+                onConfirm: () => doToc(patientId)
+            });
+        }
+        function doToc(patientId) {
+            const allPatients = Store.getPatients();
+            const p = allPatients.find(x => x.id === patientId);
+            if (!p) return;
+            const cKey = entryKey(currentViewDate, 'consult'), iKey = entryKey(currentViewDate, 'inpatient');
+            const records = Store.getDailyRecords();
+            const day = getOrCreateDay(records, currentViewDate);
+            const wasListed = day.inpatientIds.includes(patientId);
+            const created = !((p.dayInfo || {})[iKey] || (p.days || {})[iKey]);
+            const srcInfo = getDayInfo(p, cKey);
+            mergeEntry(p, cKey, iKey);
+            const inf = p.dayInfo[iKey];
+            const tag = tocTagName();
+            if (created) { inf.tags = [tag]; inf.physician = srcInfo.consultant || ''; inf.consultant = ''; }
+            else if (!(inf.tags || []).includes(tag)) inf.tags = [...(inf.tags || []), tag];
+            if (!wasListed) day.inpatientIds.push(patientId);
+            const rec = { to: 'toc', at: Date.now(), prevGoc: null, skipTomorrow: true, removedTomorrow: null, postDc: null, toc: { date: currentViewDate, wasListed, created } };
+            const tomorrow = addDays(currentViewDate, 1), tday = records[tomorrow];
+            if (tday && (tday.consultIds || []).includes(patientId)) { tday.consultIds = tday.consultIds.filter(id => id !== patientId); rec.removedTomorrow = { date: tomorrow, listKey: 'consultIds' }; }
+            const note = p.days[cKey] || (p.days[cKey] = emptyNote());
+            note.discharge = rec;
+            Store.savePatients(allPatients);
+            Store.saveDailyRecords(records);
+            renderApp();
+            showToast(`${p.name}: transfer of care · added to today's inpatient list`);
+        }
         function reverseDischarge(patientId) {
             const cur = getDayNote(Store.getPatients().find(x => x.id === patientId) || {}, curKey());
-            const isSign = !!(cur && cur.discharge && cur.discharge.to === 'signoff');
+            const isSign = !!(cur && cur.discharge && (cur.discharge.to === 'signoff' || cur.discharge.to === 'toc'));
+            const isToc = !!(cur && cur.discharge && cur.discharge.to === 'toc');
             showConfirm({
-                title: isSign ? 'Reverse sign-off?' : 'Reverse discharge?',
-                messageHtml: isSign ? 'Tomorrow\'s list and the Post D/C follow-up go back to how they were.' : 'Goals of care, tomorrow\'s list and the Post D/C follow-up go back to how they were.',
+                title: isToc ? 'Reverse transfer of care?' : isSign ? 'Reverse sign-off?' : 'Reverse discharge?',
+                messageHtml: isToc ? 'The patient is taken back off today\'s inpatient list (or loses the TOC tag) and tomorrow\'s consult list goes back to how it was.'
+                    : isSign ? 'Tomorrow\'s list and the Post D/C follow-up go back to how they were.' : 'Goals of care, tomorrow\'s list and the Post D/C follow-up go back to how they were.',
                 confirmLabel: 'Reverse',
                 onConfirm: () => {
                     const allPatients = Store.getPatients();
@@ -4092,6 +4157,12 @@
                         const lk = rec.removedTomorrow.listKey;
                         if (!day[lk].includes(patientId)) day[lk].push(patientId);
                     }
+                    if (rec.toc) {
+                        const p2 = allPatients.find(x => x.id === patientId), iKey = entryKey(rec.toc.date, 'inpatient');
+                        if (!rec.toc.wasListed && records[rec.toc.date]) records[rec.toc.date].inpatientIds = (records[rec.toc.date].inpatientIds || []).filter(id => id !== patientId);
+                        if (rec.toc.created) { if (p2.dayInfo) delete p2.dayInfo[iKey]; if (p2.days) delete p2.days[iKey]; if (p2.labs) delete p2.labs[iKey]; }
+                        else if (p2.dayInfo && p2.dayInfo[iKey]) p2.dayInfo[iKey].tags = (p2.dayInfo[iKey].tags || []).filter(t => t !== tocTagName());
+                    }
                     if (rec.postDc && records[rec.postDc.date]) {
                         records[rec.postDc.date].postDc = (records[rec.postDc.date].postDc || []).filter(x => x.id !== rec.postDc.id);
                     }
@@ -4099,7 +4170,7 @@
                     Store.saveDailyRecords(records);
                     Store.savePatients(allPatients);
                     renderApp();
-                    showToast(isSign ? 'Sign-off reversed' : 'Discharge reversed');
+                    showToast(isToc ? 'Transfer of care reversed' : isSign ? 'Sign-off reversed' : 'Discharge reversed');
                 }
             });
         }
@@ -6715,6 +6786,7 @@
             const settings = Store.getSettings();
             const isConsult = listType === 'consult';
             mrnLink = null;
+            addPatientListType = isConsult ? 'consult' : 'inpatient';
 
             container.innerHTML = `
                 <div class="fixed inset-0 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto">
@@ -6801,7 +6873,8 @@
         }
 
         /* ---------- Same MRN = same patient? ---------- */
-        let mrnLink = null; // { mrn, patientId, decided: null | 'yes' | 'no' }
+        let mrnLink = null; // { mrn, patientId, decided: null | 'yes' | 'no', re: null | 'yes' | 'no' (readmission / reconsult) }
+        let addPatientListType = 'inpatient';
 
         function findPatientByMrn(mrn) {
             const m = String(mrn || '').trim().toLowerCase();
@@ -6816,11 +6889,32 @@
             if (!box) return;
             const match = findPatientByMrn(mrn);
             if (!match) { mrnLink = null; box.className = 'hidden'; box.innerHTML = ''; return; }
-            if (!mrnLink || mrnLink.mrn !== mrn || mrnLink.patientId !== match.id) mrnLink = { mrn, patientId: match.id, decided: null };
+            if (!mrnLink || mrnLink.mrn !== mrn || mrnLink.patientId !== match.id) mrnLink = { mrn, patientId: match.id, decided: null, re: null, toc: null, listType: addPatientListType };
             if (mrnLink.decided === 'yes') {
                 const info = latestInfo(match);
+                const isC = mrnLink.listType === 'consult';
+                const newKey = entryKey(currentViewDate, isC ? 'consult' : 'inpatient');
+                const anyKey = latestEncounterKey(match, newKey);
+                // on the inpatient list, a patient last seen as a consult: accepted transfer of care?
+                const tocKey = !isC && anyKey && keyType(anyKey) === 'consult' ? anyKey : null;
+                const askBtns = (fn, yes) => `<div class="flex gap-2 flex-wrap">
+                                   <button onclick="${fn}('yes')" class="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold">${yes}</button>
+                                   <button onclick="${fn}('no')" class="px-3 py-1.5 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg text-xs font-semibold">No</button></div>`;
+                const askBox = (inner) => `<div class="mt-2 rounded-lg bg-amber-50 border-2 ${force ? 'border-amber-400' : 'border-amber-200'} p-2 text-amber-900 space-y-2">${inner}</div>`;
+                const tocQ = !tocKey ? '' : mrnLink.toc === 'yes'
+                    ? `<div class="mt-2 rounded-lg bg-white/70 border border-emerald-300 p-2"><i class="fa-solid fa-right-left"></i> <strong>Transfer of care</strong>: their ${esc(encounterLabel(tocKey))} will be brought in, tagged <strong>${esc(tocTagName())}</strong>. <button onclick="answerToc(null)" class="underline ml-1">Change</button></div>`
+                    : mrnLink.toc === 'no'
+                        ? `<div class="mt-2 text-emerald-800/80">Not a transfer of care. <button onclick="answerToc(null)" class="underline">Change</button></div>`
+                        : askBox(`<div><i class="fa-solid fa-circle-question"></i> <strong>Is this an accepted transfer of care?</strong> Their last encounter: <strong>${esc(encounterLabel(tocKey))}</strong>.</div>${askBtns('answerToc', 'Yes, accepted TOC')}`);
+                const lastKey = tocKey ? (mrnLink.toc === 'no' ? latestEncounterKeyOf(match, newKey, 'inpatient') : null) : anyKey;
+                const what = isC ? 'recent reconsult' : 'recent readmission';
+                const reQ = !lastKey ? '' : mrnLink.re === 'yes'
+                    ? `<div class="mt-2 rounded-lg bg-white/70 border border-emerald-300 p-2"><i class="fa-solid fa-rotate-right"></i> <strong>${isC ? 'Reconsult' : 'Readmission'}</strong>: their last ${esc(encounterLabel(lastKey))} (issues, plan, investigations) will be brought in, tagged <strong>${esc(reTagName(isC ? 'consult' : 'inpatient'))}</strong>. <button onclick="answerReadmit(null)" class="underline ml-1">Change</button></div>`
+                    : mrnLink.re === 'no'
+                        ? `<div class="mt-2 text-emerald-800/80">Not a ${what}: added as usual. <button onclick="answerReadmit(null)" class="underline">Change</button></div>`
+                        : askBox(`<div><i class="fa-solid fa-circle-question"></i> <strong>Is this a ${what}?</strong> Their last ${isC ? '' : 'inpatient '}encounter: <strong>${esc(encounterLabel(lastKey))}</strong>.</div>${askBtns('answerReadmit', 'Yes, bring their last entry')}`);
                 box.className = 'rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900';
-                box.innerHTML = `<i class="fa-solid fa-link"></i> Using <strong>${esc(match.name)}</strong>'s record: name, gender, date of birth, goals of care and ${info.medicalBackground.length} medical background item${info.medicalBackground.length === 1 ? '' : 's'} are brought in. Fill in this entry's location, date and physician / primary team. <button onclick="answerMrnMatch('no')" class="underline ml-1">Undo</button>`;
+                box.innerHTML = `<i class="fa-solid fa-link"></i> Using <strong>${esc(match.name)}</strong>'s record: name, gender, date of birth, goals of care and ${info.medicalBackground.length} medical background item${info.medicalBackground.length === 1 ? '' : 's'} are brought in. Fill in this entry's location, date and physician / primary team. <button onclick="answerMrnMatch('no')" class="underline ml-1">Undo</button>${tocQ}${reQ}`;
                 return;
             }
             if (mrnLink.decided === 'no') {
@@ -6839,9 +6933,12 @@
                 </div>`;
         }
 
+        function answerReadmit(answer) { if (!mrnLink) return; mrnLink.re = answer; checkMrnMatch(); }
+        function answerToc(answer) { if (!mrnLink) return; mrnLink.toc = answer; mrnLink.re = null; checkMrnMatch(); }
         function answerMrnMatch(answer) {
             if (!mrnLink) return;
             mrnLink.decided = answer;
+            if (answer !== 'yes') { mrnLink.re = null; mrnLink.toc = null; }
             if (answer === 'yes') {
                 const p = Store.getPatients().find(x => x.id === mrnLink.patientId);
                 if (p) {
@@ -6860,8 +6957,31 @@
             checkMrnMatch();
         }
 
+        // A patient's most recent entry (inpatient or consult), other than the one being created.
+        function latestEncounterKey(p, exceptKey) {
+            const keys = [...new Set([...Object.keys(p.dayInfo || {}), ...Object.keys(p.days || {})])].filter(k => k !== exceptKey);
+            keys.sort((a, b) => keyDate(a) < keyDate(b) ? -1 : keyDate(a) > keyDate(b) ? 1 : 0);
+            return keys.length ? keys[keys.length - 1] : null;
+        }
+        const encounterLabel = (k) => `${keyType(k) === 'consult' ? 'consult' : 'inpatient'} entry of ${fmtDate(keyDate(k))}`;
+        function tocTagName() {
+            const t = (Store.getSettings().tags || []).find(t => String(t.name).toLowerCase().replace(/[^a-z]/g, '') === 'toc');
+            return t ? t.name : 'TOC';
+        }
+        // latest entry of one list type (inpatient / consult)
+        function latestEncounterKeyOf(p, exceptKey, type) {
+            const keys = [...new Set([...Object.keys(p.dayInfo || {}), ...Object.keys(p.days || {})])].filter(k => k !== exceptKey && keyType(k) === type).sort();
+            return keys.length ? keys[keys.length - 1] : null;
+        }
+        function reTagName(type) {
+            const want = type === 'consult' ? 'recnslt' : 'readm';
+            const t = (Store.getSettings().tags || []).find(t => String(t.name).toLowerCase().replace(/[^a-z]/g, '') === want);
+            return t ? t.name : (type === 'consult' ? 'ReCnslt' : 'ReAdm');
+        }
         // Adds a new entry for an existing patient (same MRN, answered "yes").
-        function addEntryForExistingPatient(patientId, listType, fields) {
+        // Readmission / reconsult: their latest entry (issues, plan, investigations…) comes with it, tagged ReAdm / ReCnslt.
+        // copy: null, or { key: entry to bring in, tag: tag name, toc: true for a transfer of care }
+        function addEntryForExistingPatient(patientId, listType, fields, copy = null) {
             const type = listType === 'consult' ? 'consult' : 'inpatient';
             const date = currentViewDate;
             const key = entryKey(date, type);
@@ -6877,6 +6997,7 @@
                 return;
             }
             const last = latestInfoExcept(p, key);
+            const lastKey = copy ? copy.key : null;
             p.name = fields.name || p.name;
             p.gender = fields.gender || p.gender;
             p.dob = fields.dob || p.dob || '';
@@ -6885,13 +7006,20 @@
             if (p.days) delete p.days[key];
             if (p.labs) delete p.labs[key];
             delete day.careFlags[careKey(patientId, type)];
+            if (lastKey) {
+                const srcInfo = getDayInfo(p, lastKey);
+                mergeEntry(p, lastKey, key);
+                p.dayInfo[key].tags = [copy.tag]; // old day-to-day tags don't carry over; the readmission / TOC tag does
+                // from a consult to our own list: our physician was the consultant (the consult's "physician" is the primary team)
+                if (copy.toc) { p.dayInfo[key].physician = fields.info.physician || srcInfo.consultant || ''; p.dayInfo[key].consultant = ''; }
+            }
             list.push(patientId);
             Store.savePatients(allPatients);
             Store.saveDailyRecords(records);
             mrnLink = null;
             closeModal();
             renderApp();
-            showToast(`${p.name} added from their existing record`);
+            showToast(lastKey ? `${p.name} added as ${copy.toc ? 'a transfer of care' : type === 'consult' ? 'a reconsult' : 'a readmission'}, with their ${encounterLabel(lastKey)}` : `${p.name} added from their existing record`);
         }
 
         function submitAddPatient(listType) {
@@ -6923,6 +7051,15 @@
             }
             if (match && mrnLink.decided === 'yes') {
                 const isC = listType === 'consult';
+                const newKey = entryKey(currentViewDate, isC ? 'consult' : 'inpatient');
+                const anyKey = latestEncounterKey(match, newKey);
+                const tocKey = !isC && anyKey && keyType(anyKey) === 'consult' ? anyKey : null;
+                const reKey = tocKey ? (mrnLink.toc === 'no' ? latestEncounterKeyOf(match, newKey, 'inpatient') : null) : anyKey;
+                const ask = () => { checkMrnMatch(true); const box = document.getElementById('modal-mrn-match'); if (box) box.scrollIntoView({ block: 'center', behavior: 'smooth' }); };
+                if (tocKey && !mrnLink.toc) { ask(); return; }
+                if (reKey && !mrnLink.re) { ask(); return; }
+                const copy = tocKey && mrnLink.toc === 'yes' ? { key: tocKey, tag: tocTagName(), toc: true }
+                    : reKey && mrnLink.re === 'yes' ? { key: reKey, tag: reTagName(isC ? 'consult' : 'inpatient') } : null;
                 addEntryForExistingPatient(match.id, listType, {
                     name,
                     gender: val('modal-pat-gender') || 'M',
@@ -6937,7 +7074,7 @@
                         admissionDate: isC ? '' : (val('modal-pat-date') || currentViewDate),
                         consultDate: isC ? (val('modal-pat-date') || currentViewDate) : ''
                     }
-                });
+                }, copy);
                 return;
             }
 
