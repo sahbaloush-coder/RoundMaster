@@ -68,6 +68,10 @@
         .issues-plan-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
         .issues-plan-grid.ipg-stretch { align-items: stretch; }
         .ink-pad { flex: 1 1 0; min-height: 0; }
+        /* iPad / iPhone: the dimmed background behind a pop-up must also cover the area where the keyboard was
+           (iOS can leave the page shorter than the screen after the keyboard closes) */
+        .fixed.inset-0[class*="bg-slate-900/"] { box-shadow: 0 0 0 100vmax rgba(15, 23, 42, 0.5); }
+        html, body { min-height: 100%; }
         .list-bar.lt-icons button > span.hidden { display: none !important; }
         /* box headers: when the buttons don't fit beside the title, they show just their icons */
         [data-fit].fit-icons .fit-label { display: none; }
@@ -344,40 +348,269 @@
            ========================================================= */
 
         // Defaults for a new install (taken from your own setup).
+        // Default settings: your own set-up (wards, goals of care, tags, treatment codes, team / MRP and their
+        // order and colours), used on a new install and after "Wipe everything".
         const DEFAULT_SETTINGS = {
-            wards: [
-                { id: 'w1', name: 'ER', color: '#fef3c7', fontColor: '#78350f' },
-                { id: 'w4', name: 'ICU', color: '#0797a2', fontColor: '#ffffff' },
-                { id: 'w5', name: '6', color: '#e0f2fe', fontColor: '#1e3a8a' },
-                { id: 'w7', name: '5', color: '#fee1f8', fontColor: '#1e293b' }
+            "wards": [
+                {
+                    "id": "w1",
+                    "name": "ER",
+                    "color": "#fef360",
+                    "fontColor": "#1e293b"
+                },
+                {
+                    "id": "w4",
+                    "name": "ICU",
+                    "color": "#006af4",
+                    "fontColor": "#ffffff"
+                },
+                {
+                    "id": "w5",
+                    "name": "6",
+                    "color": "#e0f2fe",
+                    "fontColor": "#1e3a8a"
+                },
+                {
+                    "id": "s_1791816595462",
+                    "name": "5",
+                    "color": "#fee1f8",
+                    "fontColor": "#1e293b"
+                }
             ],
-            goalsOfCare: [
-                { id: 'g1', name: 'Full Code', color: '#d1fae5', fontColor: '#065f46' },
-                { id: 'g2', name: 'Support Care', color: '#a3d0ff', fontColor: '#1e293b' },
-                { id: 'g3', name: 'Comfort/DNR', color: '#fce7f3', fontColor: '#831843' },
-                { id: 'g4', name: 'Expired', color: '#a81100', fontColor: '#ffffff' }
+            "goalsOfCare": [
+                {
+                    "id": "g1",
+                    "name": "Full Code",
+                    "color": "#d1fae5",
+                    "fontColor": "#065f46"
+                },
+                {
+                    "id": "g2",
+                    "name": "Support Care",
+                    "color": "#a3d0ff",
+                    "fontColor": "#1e293b"
+                },
+                {
+                    "id": "g3",
+                    "name": "Comfort/DNR",
+                    "color": "#fce7f3",
+                    "fontColor": "#831843"
+                },
+                {
+                    "id": "s_1791817649454",
+                    "name": "Expired",
+                    "color": "#000000",
+                    "fontColor": "#ffffff"
+                }
             ],
-            tags: [
-                { id: 't1', name: 'For D/C', color: '#54c06f', fontColor: '#ffffff' },
-                { id: 't2', name: 'For ToC', color: '#54c06f', fontColor: '#ffffff' },
-                { id: 't3', name: 'New', color: '#fed681', fontColor: '#1e293b' },
-                { id: 't4', name: 'Post ICU', color: '#0797a2', fontColor: '#ffffff' },
-                { id: 't5', name: 'Sick', color: '#fca5a5', fontColor: '#7f1d1d' },
-                { id: 't6', name: 'Endorse', color: '#c800ff', fontColor: '#ffffff' },
-                { id: 't7', name: '✓ Done', color: '#06601d', fontColor: '#ffffff' },
-                { id: 't8', name: 'ReAdm', color: '#ea580c', fontColor: '#ffffff' },
-                { id: 't9', name: 'ReCnslt', color: '#4f46e5', fontColor: '#ffffff' },
-                { id: 't10', name: 'TOC', color: '#0d9488', fontColor: '#ffffff' }
+            "tags": [
+                {
+                    "id": "t3",
+                    "name": "New",
+                    "color": "#fed681",
+                    "fontColor": "#1e293b"
+                },
+                {
+                    "id": "s_1791882671305",
+                    "name": "✓ Done",
+                    "color": "#06601d",
+                    "fontColor": "#ffffff"
+                },
+                {
+                    "id": "t_readm",
+                    "name": "ReAdm",
+                    "color": "#ffbc3d",
+                    "fontColor": "#1e293b"
+                },
+                {
+                    "id": "t5",
+                    "name": "Sick",
+                    "color": "#b00200",
+                    "fontColor": "#ffffff"
+                },
+                {
+                    "id": "t4",
+                    "name": "Post ICU",
+                    "color": "#a3d0ff",
+                    "fontColor": "#1e293b"
+                },
+                {
+                    "id": "s_1791882508193",
+                    "name": "Endorse",
+                    "color": "#890064",
+                    "fontColor": "#ffffff"
+                },
+                {
+                    "id": "t_toc",
+                    "name": "TOC",
+                    "color": "#c4c4ff",
+                    "fontColor": "#1e293b"
+                },
+                {
+                    "id": "t2",
+                    "name": "For TOC",
+                    "color": "#84ffb9",
+                    "fontColor": "#1e293b"
+                },
+                {
+                    "id": "t_recnslt",
+                    "name": "ReCnslt",
+                    "color": "#9b9bff",
+                    "fontColor": "#1e293b"
+                },
+                {
+                    "id": "t1",
+                    "name": "For D/C",
+                    "color": "#84ffb9",
+                    "fontColor": "#1e293b"
+                }
             ],
-            // Automatic tags (Settings → Tags): which tag each rule adds
-            autoTags: { endorse: 't6', done: 't7' },
-            colorCodes: [
-                { id: 'c1', name: 'Antibiotics', color: '#661daf' },
-                { id: 'c2', name: 'Diuretics', color: '#e8bd21' },
-                { id: 'c3', name: 'Fluid', color: '#1692d0' },
-                { id: 'c4', name: 'Anticoagulation', color: '#a80000' },
-                { id: 'c5', name: 'Important', color: '#ff0048' }
-            ]
+            "colorCodes": [
+                {
+                    "id": "c1",
+                    "name": "Antibiotics",
+                    "color": "#661daf"
+                },
+                {
+                    "id": "c2",
+                    "name": "Diuretics",
+                    "color": "#b37f00"
+                },
+                {
+                    "id": "c3",
+                    "name": "Fluid",
+                    "color": "#1692d0"
+                },
+                {
+                    "id": "c4",
+                    "name": "Anticoagulation",
+                    "color": "#a80000"
+                },
+                {
+                    "id": "c5",
+                    "name": "Important",
+                    "color": "#ff0048"
+                }
+            ],
+            "autoTags": {
+                "endorse": "s_1791882508193",
+                "done": "s_1791882671305"
+            },
+            "team": "Pulmonology",
+            "mrp": "Mohammad",
+            "reTagsAdded": true,
+            "tocTagAdded": true
+        };
+        // The rest of the set-up a new install starts with (physician colours, lab settings, appearance, open boxes).
+        const DEFAULT_BUNDLE = {
+            "physician_colors_v2": {
+                "ahmed": 0,
+                "layla": 1,
+                "lili": 2,
+                "me": 13,
+                "malek": 4,
+                "sari": 3,
+                "malik": 5
+            },
+            "physician_color_pins": {
+                "me": true
+            },
+            "lab_settings": {
+                "units": {
+                    "lytes.cr": 1,
+                    "lytes.alb": 1,
+                    "glucose.fasting": 1,
+                    "glucose.g1": 1,
+                    "glucose.g2": 1,
+                    "glucose.g3": 1,
+                    "inflammation.crp": 1,
+                    "bone.ca": 1,
+                    "bone.phos": 1,
+                    "bone.mg": 1
+                },
+                "overrides": {},
+                "layout": {
+                    "daily": [
+                        "vitals",
+                        "io",
+                        "cbc",
+                        "lytes",
+                        "glucose"
+                    ],
+                    "acute": [
+                        "critical",
+                        "gas",
+                        "coag"
+                    ],
+                    "infections": [
+                        "inflammation",
+                        "cultures",
+                        "ua",
+                        "pcr"
+                    ],
+                    "others": [
+                        "bone",
+                        "liver",
+                        "iron",
+                        "endocrine",
+                        "labs",
+                        "text",
+                        "image"
+                    ],
+                    "mine": []
+                },
+                "sets": {
+                    "glucose": [
+                        {
+                            "k": "fasting",
+                            "label": "Fasting",
+                            "unit": ""
+                        },
+                        {
+                            "k": "g1",
+                            "label": "#1",
+                            "unit": ""
+                        },
+                        {
+                            "k": "g2",
+                            "label": "#2",
+                            "unit": ""
+                        },
+                        {
+                            "k": "g3",
+                            "label": "#3",
+                            "unit": ""
+                        },
+                        {
+                            "k": "umv6jpzii",
+                            "label": "Random",
+                            "unit": "",
+                            "lo": null,
+                            "hi": null,
+                            "own": true
+                        },
+                        {
+                            "k": "umv6jq5ek",
+                            "label": "A1c%",
+                            "unit": "",
+                            "lo": null,
+                            "hi": null,
+                            "own": true
+                        }
+                    ]
+                }
+            },
+            "theme": "light",
+            "card_scale": 0.85,
+            "settings_closed": {
+                "invsets": true,
+                "backup": false,
+                "appearance": true,
+                "goalsOfCare": true,
+                "wards": true,
+                "tags": true,
+                "colorcodes": true
+            }
         };
         // Lab units chosen by default (index into each lab's unit list, see LAB_REF).
         const DEFAULT_LAB_UNITS = {
@@ -1157,6 +1390,35 @@
             const container = document.getElementById('modal-container');
             if (container) container.innerHTML = '';
         }
+        /* Pop-ups on iPad / iPhone: the page behind is held still while a pop-up is open (so scrolling can't drag
+           the pop-up up and down), and the dimmed backdrop is fitted to the part of the screen you can see
+           (above the keyboard when it's up, the whole screen when it's not), so the pop-up stays centred. */
+        (() => {
+            const mc = document.getElementById('modal-container');
+            if (!mc) return;
+            let locked = false, savedY = 0;
+            const fit = () => {
+                const ov = mc.firstElementChild;
+                if (!ov || !window.visualViewport) return;
+                const vv = window.visualViewport;
+                ov.style.top = vv.offsetTop + 'px'; ov.style.height = vv.height + 'px'; ov.style.bottom = 'auto';
+            };
+            const lock = () => {
+                if (locked) return;
+                locked = true; savedY = window.scrollY;
+                const b = document.body.style;
+                b.position = 'fixed'; b.top = -savedY + 'px'; b.left = '0'; b.right = '0'; b.width = '100%';
+            };
+            const unlock = () => {
+                if (!locked) return;
+                locked = false;
+                const b = document.body.style;
+                b.position = ''; b.top = ''; b.left = ''; b.right = ''; b.width = '';
+                window.scrollTo(0, savedY);
+            };
+            new MutationObserver(() => { if (mc.children.length) { lock(); fit(); } else unlock(); }).observe(mc, { childList: true });
+            if (window.visualViewport) { window.visualViewport.addEventListener('resize', fit); window.visualViewport.addEventListener('scroll', fit); }
+        })();
 
         function renderApp() {
             const main = document.getElementById('main-view');
@@ -9806,6 +10068,13 @@
 
         window.onload = async function() {
             try { await BigStore.ready(); } catch (e) { return; }
+            // New install (or after "Wipe everything"): start with the default set-up
+            try {
+                if (localStorage.getItem(STORAGE_PREFIX + 'settings') === null) {
+                    Store.set('settings', DEFAULT_SETTINGS);
+                    Object.entries(DEFAULT_BUNDLE).forEach(([k, v]) => { if (localStorage.getItem(STORAGE_PREFIX + k) === null) Store.set(k, v); });
+                }
+            } catch (e) {}
             applyTheme();
             applyCardScale(); applyTextScale();
             try { fixEndorseSpelling(); } catch (e) { console.error(e); }
