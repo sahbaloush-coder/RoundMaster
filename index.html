@@ -73,6 +73,8 @@
         .fixed.inset-0[class*="bg-slate-900/"] { box-shadow: 0 0 0 100vmax rgba(15, 23, 42, 0.5); }
         html, body { min-height: 100%; }
         .list-bar.lt-icons button > span.hidden { display: none !important; }
+        /* Settings lists in two columns: fill the first column top to bottom, then the second */
+        @media (min-width: 640px) { .col-flow { grid-auto-flow: column; grid-template-rows: repeat(var(--rows, 1), auto); } }
         /* box headers: when the buttons don't fit beside the title, they show just their icons */
         [data-fit].fit-icons .fit-label { display: none; }
         /* folded Medical Background: as tall as the memo buttons beside it */
@@ -496,8 +498,8 @@
                 "endorse": "s_1791882508193",
                 "done": "s_1791882671305"
             },
-            "team": "Pulmonology",
-            "mrp": "Mohammad",
+            "team": "",
+            "mrp": "",
             "reTagsAdded": true,
             "tocTagAdded": true
         };
@@ -1564,6 +1566,8 @@
 
         let dragState = null;
 
+        function isColFlow(l) { return !!l && l.classList.contains('col-flow') && getComputedStyle(l).gridAutoFlow.startsWith('column'); }
+        function updateColRows(l) { if (l && l.classList.contains('col-flow')) l.style.setProperty('--rows', Math.max(1, Math.ceil(sortItemsOf(l).length / 2))); }
         function sortItemsOf(list) {
             return [...list.children].filter(el => el.hasAttribute('data-sort-item'));
         }
@@ -1586,6 +1590,8 @@
             }
             const items = sortItemsOf(list);
             dragState = { list, item, from: items.indexOf(item), pointerId: e.pointerId, moved: false };
+            // Settings lists swap: the dragged item follows the finger and trades places with the one it's dropped on
+            if ((list.getAttribute('data-sort-list') || '').startsWith('set:')) Object.assign(dragState, { swap: true, x0: e.clientX, y0: e.clientY, sy0: window.scrollY, target: null });
             item.classList.add('dragging');
             document.body.classList.add('is-dragging');
             try { handle.setPointerCapture(e.pointerId); } catch (err) {}
@@ -1626,6 +1632,21 @@
                 else if (e.clientY > window.innerHeight - edgeS) window.scrollBy(0, 14);
                 return;
             }
+            if (dragState.swap) {
+                const ds = dragState;
+                const z = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--card-scale')) || 1;
+                ds.item.style.transform = `translate(${(e.clientX - ds.x0) / z}px, ${(e.clientY - ds.y0 + (window.scrollY - ds.sy0)) / z}px)`;
+                ds.item.style.zIndex = '30'; ds.item.style.position = 'relative';
+                const over = sortItemsOf(ds.list).find(x => { if (x === ds.item) return false; const r = x.getBoundingClientRect(); return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom; }) || null;
+                if (over !== ds.target) {
+                    if (ds.target) ds.target.style.outline = '';
+                    ds.target = over;
+                    if (over) { over.style.outline = '3px dashed #6366f1'; over.style.outlineOffset = '2px'; }
+                }
+                const edgeS = 70;
+                if (e.clientY < edgeS) window.scrollBy(0, -14); else if (e.clientY > window.innerHeight - edgeS) window.scrollBy(0, 14);
+                return;
+            }
             const { list, item } = dragState;
             // Grouped lists (e.g. Investigation Set sections): an item can move into another list of the group.
             const group = list.getAttribute('data-sort-group');
@@ -1635,15 +1656,27 @@
                     return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top - 8 && e.clientY <= r.bottom + 8;
                 });
                 if (target && target !== item.parentElement) {
-                    // first item that comes after the pointer in reading order (works for lists and 2-column grids)
-                    const before = sortItemsOf(target).find(x => {
-                        const r = x.getBoundingClientRect();
-                        return e.clientY < r.top || (e.clientY <= r.bottom && e.clientX < r.left + r.width / 2);
-                    });
+                    const tItems = sortItemsOf(target).filter(x => x !== item);
+                    let before;
+                    if (isColFlow(target)) {
+                        // column-first grid: find the pointer's column, then the first item below the pointer in it
+                        const inCol = tItems.filter(x => { const r = x.getBoundingClientRect(); return e.clientX >= r.left - 8 && e.clientX <= r.right + 8; });
+                        before = inCol.find(x => { const r = x.getBoundingClientRect(); return e.clientY < r.top + r.height / 2; });
+                        if (!before && inCol.length) before = tItems[tItems.indexOf(inCol[inCol.length - 1]) + 1];
+                        else if (!before && tItems.length && e.clientX < tItems[0].getBoundingClientRect().left) before = tItems[0];
+                    } else {
+                        // first item that comes after the pointer in reading order (works for lists and 2-column grids)
+                        before = tItems.find(x => {
+                            const r = x.getBoundingClientRect();
+                            return e.clientY < r.top || (e.clientY <= r.bottom && e.clientX < r.left + r.width / 2);
+                        });
+                    }
+                    const src = item.parentElement;
                     if (before) before.before(item);
                     else target.appendChild(item);
                     const hint = target.querySelector(':scope > p');
                     if (hint) hint.remove();
+                    updateColRows(src); updateColRows(target);
                     dragState.moved = true;
                 }
             }
@@ -1657,7 +1690,9 @@
                 const r = over.getBoundingClientRect();
                 const ir = item.getBoundingClientRect();
                 const movingForward = siblings.indexOf(item) < siblings.indexOf(over);
-                const sameRow = Math.abs(r.top - ir.top) < Math.min(r.height, ir.height) / 2;
+                const sameRow = isColFlow(item.parentElement)
+                    ? Math.abs(r.left - ir.left) > Math.min(r.width, ir.width) / 2   // different column → judge sideways
+                    : Math.abs(r.top - ir.top) < Math.min(r.height, ir.height) / 2;
                 const past = sameRow
                     ? (movingForward ? e.clientX > r.left + r.width / 2 : e.clientX < r.left + r.width / 2)
                     : (movingForward ? e.clientY > r.top + r.height / 2 : e.clientY < r.top + r.height / 2);
@@ -1690,6 +1725,16 @@
             const { list, item, from } = dragState;
             item.classList.remove('dragging');
             document.body.classList.remove('is-dragging');
+            if (dragState.swap) {
+                const t = dragState.target;
+                item.style.transform = ''; item.style.zIndex = ''; item.style.position = '';
+                if (t) t.style.outline = '';
+                dragState = null;
+                const to = t ? sortItemsOf(list).indexOf(t) : -1;
+                if (t && e && e.type === 'pointerup' && to > -1 && to !== from) handleReorder(list.getAttribute('data-sort-list'), null, from, to, []);
+                else renderApp();
+                return;
+            }
             const group = list.getAttribute('data-sort-group');
             if (group === 'invsets') {
                 const moved = dragState.moved;
@@ -6101,7 +6146,7 @@
             const sections = SET_SECTIONS.map(([key, label]) => `
                 <div>
                     <h4 class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">${label}</h4>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-2 items-start min-h-[2.75rem] rounded-2xl ${layout[key].length ? '' : 'border-2 border-dashed border-slate-200'}" data-sort-list="invsets" data-sort-group="invsets" data-section="${key}">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 items-start min-h-[2.75rem] rounded-2xl col-flow ${layout[key].length ? '' : 'border-2 border-dashed border-slate-200'}" style="--rows: ${Math.max(1, Math.ceil(layout[key].length / 2))}" data-sort-list="invsets" data-sort-group="invsets" data-section="${key}">
                         ${layout[key].map(itemHtml).join('')}
                         ${layout[key].length ? '' : `<p class="col-span-full text-[calc(11px*var(--ts,1))] text-slate-400 italic px-3 py-3">${key === 'mine' ? 'Use "New set", or drag a set here.' : 'Drag sets here.'}</p>`}
                     </div>
@@ -6511,7 +6556,7 @@
                         icon: `<i class="fa-solid ${icon}"></i>`,
                         actions: `<button onclick="openAddSettingModal('${key}')" class="px-3 py-1.5 ${addCls} rounded-xl text-xs font-semibold transition"><i class="fa-solid fa-plus"></i> ${addLabel}</button>`,
                         body: `
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" data-sort-list="set:${key}">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 col-flow" style="--rows: ${Math.ceil(settings[key].length / 2)}" data-sort-list="set:${key}">
                                 ${settings[key].map((w, idx) => `
                                     <div data-sort-item data-id="${esc(w.id || idx)}" class="rounded-2xl border flex items-stretch overflow-hidden shadow-xs" style="background-color: ${esc(w.color)}; color: ${esc(w.fontColor)}">
                                         ${gripHandle('rounded-r-xl', 'bg-black/10 text-current')}
@@ -6533,7 +6578,7 @@
                         icon: '<i class="fa-solid fa-paintbrush text-blue-400"></i>',
                         actions: `<button onclick="openAddColorCodeModal()" class="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-xl text-xs font-semibold transition"><i class="fa-solid fa-plus"></i> Add Code</button>`,
                         body: `
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3" data-sort-list="set:colorCodes">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 col-flow" style="--rows: ${Math.ceil(settings.colorCodes.length / 2)}" data-sort-list="set:colorCodes">
                                 ${settings.colorCodes.map((c, idx) => `
                                     <div data-sort-item data-id="${esc(c.id || idx)}" class="rounded-2xl border border-slate-200 bg-slate-50 flex items-stretch overflow-hidden shadow-xs">
                                         ${gripHandle('rounded-r-xl', 'bg-slate-200/70 text-slate-400')}
