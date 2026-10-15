@@ -8332,7 +8332,15 @@
         const INK_HLS = [['#fff200', 'Yellow'], ['#22e6ff', 'Cyan'], ['#8cff32', 'Green'], ['#ff5ce1', 'Magenta']];
         const PEN_W = 4.6, HL_W = 19;     // one pen size (pressure makes it thinner / thicker); highlighter width
         let inkTool = { color: '#101827', hlColor: '#fff200', hl: false, mode: 'pen' }; // mode: pen | eraser | lasso
-        let inkMenu = null;            // open colour list under the pen / highlighter button
+        let inkMenu = null, inkMenuTimer = null; // open colour list under the pen / highlighter button
+        // Hide / show all ink (remembered on this device). Picking up the pen to write shows it again.
+        let inkHidden = false; try { inkHidden = localStorage.getItem('roundmaster_ink_hidden') === '1'; } catch (e) {}
+        function inkSetHidden(h, quiet) {
+            inkHidden = !!h;
+            try { localStorage.setItem('roundmaster_ink_hidden', inkHidden ? '1' : '0'); } catch (e) {}
+            inkLayout(); inkToolbarRender();
+            if (!quiet) showToast(inkHidden ? 'Ink hidden' : 'Ink shown');
+        }
         let inkDraw = null;            // the stroke / lasso / move in progress
         let inkUndo = [];              // [{ entry, id }]
         let inkRedo = [];              // [{ entry, kind: 'ink'|'thl', key, item }] - what Undo took away
@@ -8698,6 +8706,8 @@
             }
             svg.innerHTML = pen + selHtml;
             inkHlLayer(true).querySelector('.ink-saved').innerHTML = hl ? `<g opacity="${INK_HL_OPACITY}">${hl}</g>` : '';
+            svg.style.display = inkHidden ? 'none' : '';
+            inkHlLayer(true).querySelector('.ink-saved').style.display = inkHidden ? 'none' : '';
             inkSelControls(move);
         }
         function inkSelBox(move) {
@@ -9306,9 +9316,11 @@
                     inkShowToolbar();
                     if (!b) return;
                     const act = b.getAttribute('data-act');
+                    if (!['pen', 'hl'].includes(act) && !act.startsWith('c:') && !act.startsWith('h:') && inkMenu) { inkMenu = null; inkToolbarRender(); }
                     if (act === 'undo') inkUndoLast();
                     else if (act === 'redo') inkRedoLast();
                     else if (act === 'clear') inkClearAll();
+                    else if (act === 'eye') inkSetHidden(!inkHidden);
                     else if (act === 'eraser') (inkMenu = null, inkSet({ mode: inkTool.mode === 'eraser' ? 'pen' : 'eraser' }));
                     else if (act === 'lasso') { inkSel = null; inkMenu = null; inkSet({ mode: inkTool.mode === 'lasso' ? 'pen' : 'lasso' }); inkLayout(); }
                     else if (act === 'pen' || act === 'hl') {
@@ -9316,6 +9328,8 @@
                         const already = inkTool.mode === 'pen' && inkTool.hl === want;
                         inkMenu = already && inkMenu === act ? null : act; // tap again to close the list
                         inkSet({ hl: want, mode: 'pen' });
+                        clearTimeout(inkMenuTimer);
+                        if (inkMenu) inkMenuTimer = setTimeout(() => { if (inkMenu) { inkMenu = null; inkToolbarRender(); } }, 5000);
                     }
                     else if (act.startsWith('c:')) { inkMenu = null; inkSet({ color: act.slice(2), hl: false, mode: 'pen' }); }
                     else if (act.startsWith('h:')) { inkMenu = null; inkSet({ hlColor: act.slice(2), hl: true, mode: 'pen' }); }
@@ -9343,7 +9357,8 @@
                 + btn('lasso', 'fa-draw-polygon', 'Lasso: circle ink to select it, then drag it', t.mode === 'lasso')
                 + btn('undo', 'fa-rotate-left', 'Undo', false)
                 + btn('redo', 'fa-rotate-right', 'Redo', false)
-                + btn('clear', 'fa-trash', 'Clear all ink on this entry', inkClearArmed);
+                + btn('clear', 'fa-trash', 'Clear all ink on this entry', inkClearArmed)
+                + btn('eye', inkHidden ? 'fa-eye-slash' : 'fa-eye', inkHidden ? 'Show ink' : 'Hide all ink', inkHidden);
             return bar;
         }
         function inkExpand() { if (!inkExpanded) { inkExpanded = true; inkToolbarRender(); } inkShowToolbar(); }
@@ -9404,6 +9419,7 @@
         const inside = (pt, poly) => { let c = false; for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) { const [xi, yi] = poly[i], [xj, yj] = poly[j]; if ((yi > pt[1]) !== (yj > pt[1]) && pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
         document.addEventListener('pointerdown', (e) => {
             const onBar = e.target && e.target.closest && e.target.closest('#ink-toolbar, #ink-sel-del, #ink-fab');
+            if (inkMenu && !onBar) { inkMenu = null; clearTimeout(inkMenuTimer); inkToolbarRender(); }
             if (e.pointerType === 'touch' && !onBar && inkExpanded && !inkPinned) { // finger tap: tools away
                 clearTimeout(inkHideTimer); inkExpanded = false; inkMenu = null; inkToolbarRender(); inkEraserCursor(0, 0, false);
             }
@@ -9425,6 +9441,7 @@
                 inkSel = null; inkLayout();
             }
             const kind = inkTool.mode === 'eraser' ? 'eraser' : inkTool.mode === 'lasso' ? 'lasso' : 'pen';
+            if (inkHidden && !inkNoInkZone(e.target) && !e.target.closest('.drag-handle')) inkSetHidden(false); // writing / erasing / selecting brings the ink back
             // the pen on a drag handle: while you're writing it writes; otherwise it drags the box as usual
             if (e.target.closest('.drag-handle')) {
                 if (kind === 'pen' && inkNearGroup([p0[0], p0[1], p0[0], p0[1]])) e.__inkTook = true;
